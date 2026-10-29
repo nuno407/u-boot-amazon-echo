@@ -1,0 +1,135 @@
+arm64: panic and exception hooks for boards (optional)
+
+Adds two weak hooks, board_exception_hook(regs) and board_panic_hook(msg), called just before
+U-Boot resets on an arm64 exception or a panic(). With them a board can save a record that
+survives the reset; abboot's diagnostics (CONFIG_AB_CRUMBS) use them through
+ab_crumbs_exception() and ab_crumbs_panic(). Not needed for anything else.
+
+Against U-Boot v2026.10. SPDX-License-Identifier: GPL-2.0-or-later
+
+diff --git a/arch/arm/lib/interrupts_64.c b/arch/arm/lib/interrupts_64.c
+index b3024ba5..1bdfb121 100644
+--- a/arch/arm/lib/interrupts_64.c
++++ b/arch/arm/lib/interrupts_64.c
+@@ -70,6 +70,11 @@ static void dump_far(unsigned long esr)
+ 	printf(", far 0x%lx", far);
+ }
+ 
++/* A board may record the exception (e.g. somewhere that survives the reset) before the panic. */
++__weak void board_exception_hook(struct pt_regs *regs)
++{
++}
++
+ static void dump_instr(struct pt_regs *regs)
+ {
+ 	u32 *addr = (u32 *)(regs->elr & ~3UL);
+@@ -149,6 +154,7 @@ void do_bad_sync(struct pt_regs *pt_regs)
+ 	printf("Bad mode in \"Synchronous Abort\" handler, esr 0x%08lx\n",
+ 	       pt_regs->esr);
+ 	show_regs(pt_regs);
++	board_exception_hook(pt_regs);
+ 	show_efi_loaded_images(pt_regs);
+ 	panic("Resetting CPU ...\n");
+ }
+@@ -161,6 +167,7 @@ void do_bad_irq(struct pt_regs *pt_regs)
+ 	efi_restore_gd();
+ 	printf("Bad mode in \"Irq\" handler, esr 0x%08lx\n", pt_regs->esr);
+ 	show_regs(pt_regs);
++	board_exception_hook(pt_regs);
+ 	show_efi_loaded_images(pt_regs);
+ 	panic("Resetting CPU ...\n");
+ }
+@@ -173,6 +180,7 @@ void do_bad_fiq(struct pt_regs *pt_regs)
+ 	efi_restore_gd();
+ 	printf("Bad mode in \"Fiq\" handler, esr 0x%08lx\n", pt_regs->esr);
+ 	show_regs(pt_regs);
++	board_exception_hook(pt_regs);
+ 	show_efi_loaded_images(pt_regs);
+ 	panic("Resetting CPU ...\n");
+ }
+@@ -185,6 +193,7 @@ void do_bad_error(struct pt_regs *pt_regs)
+ 	efi_restore_gd();
+ 	printf("Bad mode in \"Error\" handler, esr 0x%08lx\n", pt_regs->esr);
+ 	show_regs(pt_regs);
++	board_exception_hook(pt_regs);
+ 	show_efi_loaded_images(pt_regs);
+ 	panic("Resetting CPU ...\n");
+ }
+@@ -202,6 +211,7 @@ void do_sync(struct pt_regs *pt_regs)
+ 	dump_far(pt_regs->esr);
+ 	printf("\n");
+ 	show_regs(pt_regs);
++	board_exception_hook(pt_regs);
+ 	show_efi_loaded_images(pt_regs);
+ 	panic("Resetting CPU ...\n");
+ }
+@@ -214,6 +224,7 @@ void do_irq(struct pt_regs *pt_regs)
+ 	efi_restore_gd();
+ 	printf("\"Irq\" handler, esr 0x%08lx\n", pt_regs->esr);
+ 	show_regs(pt_regs);
++	board_exception_hook(pt_regs);
+ 	show_efi_loaded_images(pt_regs);
+ 	panic("Resetting CPU ...\n");
+ }
+@@ -226,6 +237,7 @@ void do_fiq(struct pt_regs *pt_regs)
+ 	efi_restore_gd();
+ 	printf("\"Fiq\" handler, esr 0x%08lx\n", pt_regs->esr);
+ 	show_regs(pt_regs);
++	board_exception_hook(pt_regs);
+ 	show_efi_loaded_images(pt_regs);
+ 	panic("Resetting CPU ...\n");
+ }
+@@ -241,6 +253,7 @@ void __weak do_error(struct pt_regs *pt_regs)
+ 	efi_restore_gd();
+ 	printf("\"Error\" handler, esr 0x%08lx\n", pt_regs->esr);
+ 	show_regs(pt_regs);
++	board_exception_hook(pt_regs);
+ 	show_efi_loaded_images(pt_regs);
+ 	panic("Resetting CPU ...\n");
+ }
+diff --git a/lib/panic.c b/lib/panic.c
+index 0f578b5b..92d36078 100644
+--- a/lib/panic.c
++++ b/lib/panic.c
+@@ -15,9 +15,15 @@
+ #endif
+ #include <linux/delay.h>
+ #include <stdio.h>
++#include <vsprintf.h>
+ 
+ static void panic_finish(void) __attribute__ ((noreturn));
+ 
++/* A board may record the panic (e.g. somewhere that survives the reset) before it happens. */
++__weak void board_panic_hook(const char *msg)
++{
++}
++
+ static void panic_finish(void)
+ {
+ 	putc('\n');
+@@ -35,6 +41,7 @@ static void panic_finish(void)
+ void panic_str(const char *str)
+ {
+ 	puts(str);
++	board_panic_hook(str);
+ 	panic_finish();
+ }
+ 
+@@ -42,9 +49,17 @@ void panic(const char *fmt, ...)
+ {
+ #if CONFIG_IS_ENABLED(PRINTF)
+ 	va_list args;
++	char msg[64];
++
+ 	va_start(args, fmt);
+ 	vprintf(fmt, args);
+ 	va_end(args);
++	va_start(args, fmt);
++	vsnprintf(msg, sizeof(msg), fmt, args);
++	va_end(args);
++	board_panic_hook(msg);
++#else
++	board_panic_hook(fmt);
+ #endif
+ 	panic_finish();
+ }

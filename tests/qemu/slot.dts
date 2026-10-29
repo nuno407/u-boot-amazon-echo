@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/* A slot's own device tree for the QEMU tests: abboot-qemu.c adds QEMU's memory and PSCI nodes. */
+/dts-v1/;
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	model = "abboot QEMU test slot";
+	compatible = "linux,dummy-virt";
+	chosen { };
+};

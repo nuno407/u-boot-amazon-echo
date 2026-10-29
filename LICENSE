@@ -1,0 +1,17 @@
+u-boot-amazon-echo is free software: you can redistribute it and/or modify it under the terms of
+the GNU General Public License as published by the Free Software Foundation, either version 2 of
+the License, or (at your option) any later version (SPDX: GPL-2.0-or-later). The full text is in
+LICENSES/GPL-2.0.txt.
+
+The boot layer's U-Boot code (abboot/), the board code (boards/) and the patches (uboot/patches/)
+are built into U-Boot, which is GPL-2.0-or-later, and are under that license.
+
+The tools meant to be copied into an operating system or run on a computer, tools/bootctl,
+tools/abctl.py and examples/update-slot.sh, are under the MIT license (LICENSES/MIT.txt), so an
+OS image can ship them whatever its own license. MIT is compatible with the GPL.
+
+Every source file names its license in an SPDX-License-Identifier line.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+General Public License for more details.

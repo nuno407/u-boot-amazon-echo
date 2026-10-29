@@ -1,0 +1,31 @@
+boot: build the abboot A/B boot layer
+
+Sources boot/abboot/Kconfig from the "Booting" menu and builds boot/abboot/ in U-Boot proper
+(not in SPL/TPL). uboot/install.sh copies abboot/ to boot/abboot/ first.
+
+Against U-Boot v2026.10. SPDX-License-Identifier: GPL-2.0-or-later
+
+diff --git a/boot/Kconfig b/boot/Kconfig
+index 3c750e49..82fab9fa 100644
+--- a/boot/Kconfig
++++ b/boot/Kconfig
+@@ -2086,4 +2086,6 @@ config CEDIT
+ 
+ endmenu		# Configuration editor
+ 
++source "boot/abboot/Kconfig"
++
+ endmenu		# Booting
+diff --git a/boot/Makefile b/boot/Makefile
+index 7fb56e7e..f1bc4d2c 100644
+--- a/boot/Makefile
++++ b/boot/Makefile
+@@ -76,3 +76,8 @@ obj-$(CONFIG_$(PHASE_)BOOTMETH_ANDROID) += bootmeth_android.o
+ obj-$(CONFIG_$(PHASE_)BOOTMETH_VBE_ABREC) += vbe_abrec.o vbe_common.o
+ obj-$(CONFIG_$(PHASE_)BOOTMETH_VBE_ABREC_FW) += vbe_abrec_fw.o
+ obj-$(CONFIG_$(PHASE_)BOOTMETH_VBE_ABREC_OS) += vbe_abrec_os.o
++
++# The abboot A/B boot layer (copied here as boot/abboot/ by uboot/install.sh)
++ifeq ($(CONFIG_XPL_BUILD),)
++obj-$(CONFIG_ABBOOT) += abboot/
++endif

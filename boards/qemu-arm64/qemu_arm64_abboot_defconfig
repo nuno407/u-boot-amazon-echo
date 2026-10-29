@@ -1,0 +1,14 @@
+#include <configs/qemu_arm64_defconfig>
+# abboot's example board (boards/qemu-arm64/): QEMU's arm64 virt machine, the disk on virtio.
+# SPDX-License-Identifier: GPL-2.0-or-later
+CONFIG_ABBOOT=y
+CONFIG_AB_DEV_IFACE="virtio"
+CONFIG_AB_SELF_MARKER="abboot-qemu-self"
+CONFIG_AB_SLOT_ARGS="panic=5"
+CONFIG_AB_IMAGE_MAX=0x01000000
+CONFIG_AB_CRUMBS=y
+CONFIG_CONSOLE_RECORD=y
+CONFIG_CONSOLE_RECORD_OUT_SIZE=0x10000
+CONFIG_BOOTDELAY=0
+CONFIG_USE_BOOTCOMMAND=y
+CONFIG_BOOTCOMMAND="setenv fdt_addr_r 0x48000000; setenv loadaddr 0x49000000; abboot; poweroff"

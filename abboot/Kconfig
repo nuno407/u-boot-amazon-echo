@@ -1,0 +1,138 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# abboot: the A/B boot layer (SPEC.md), board-independent. uboot/install.sh copies this directory
+# into a U-Boot tree as boot/abboot/, and uboot/patches/0001 sources this file from boot/Kconfig.
+# A board selects ABBOOT and sets the strings below in its defconfig.
+
+menuconfig ABBOOT
+	bool "abboot: boot the A/B slot named by the record in misc (SPEC.md)"
+	depends on ARM64
+	select FS_EXT4
+	select SHA1
+	select CMD_BOOTI
+	select SUPPORT_RAW_INITRD
+	help
+	  The slot to boot comes from the A/B record (the layout of AOSP's bootloader_control)
+	  at byte 2048 of the misc partition. A slot that has not yet booted successfully loses
+	  a try on each boot, and a slot out of tries falls back to the other. Each slot's
+	  kernel is /slots/<x>/boot/boot.img on the store partition; the kernel command line
+	  gets ab.slot=<x> ab.kernel=<x|rescue>. The command is "abboot".
+
+if ABBOOT
+
+config AB_DEV_IFACE
+	string "Block device interface the partitions are on"
+	default "mmc"
+
+config AB_DEV_NUM
+	int "Its device number"
+	default 0
+
+config AB_MISC_PART
+	string "Name of the partition holding the A/B record (byte 2048)"
+	default "misc"
+
+config AB_STORE_PART
+	string "Name of the ext4 partition holding the slots (/slots/<x>/boot/)"
+	default "system"
+
+config AB_SELF_PART
+	string "Name of the partition U-Boot itself is in: never loaded as a kernel"
+	default "boot"
+
+config AB_RESCUE_PART
+	string "Name of the partition holding the rescue kernel (an Android boot image)"
+	default "recovery"
+
+config AB_RESCUE_FILE
+	string "Rescue kernel from this file on the store instead (test builds)"
+	default ""
+	help
+	  Empty: the rescue kernel is the boot image in AB_RESCUE_PART. A test build that runs
+	  from that partition itself takes it from a file on the store, e.g. /rescue.img.
+
+config AB_SELF_MARKER
+	string "A string every build of this U-Boot carries"
+	default "abboot-uboot-image"
+	help
+	  abboot never boots an image whose kernel holds it (a test U-Boot in the rescue
+	  partition, or a U-Boot copied into a slot by mistake). Tools that must never write
+	  over U-Boot can look for it too.
+
+config AB_BORROW_KERNEL
+	bool "A slot whose kernel cannot be used boots the other slot's kernel with its own root"
+	help
+	  For kernels that carry everything they need (every driver built in). Without it (for
+	  example a kernel whose modules live in its own slot's root filesystem), such a slot is
+	  left for the other slot whole, if that one is bootable; it loses a try.
+
+config AB_READONLY
+	bool "Never write the record: show and follow it only (a first, safe test)"
+
+config AB_MENU
+	bool "The boot menu (Slot A, Slot B, a 5 s countdown) on the video console"
+	depends on VIDEO
+	help
+	  Keys come from board_ab_keys(): Up and Down move the bar, both together start the
+	  selected entry. A board's board_ab_menu_visible() can leave the menu out on a boot
+	  where the screen shows nothing.
+
+config AB_MENU_HINT
+	string "The hint at the bottom of the menu"
+	default "Volume up or down to choose, both to start"
+
+config AB_WARN_MS
+	int "A warning stays on the screen at least this long (ms)"
+	default 3000
+
+config AB_STAY_HINT
+	string "The second line of the stay screen (no kernel at all)"
+	default "Use the bootloader's recovery to flash a kernel"
+
+config AB_INIT
+	string "init= for the kernel, replacing any (empty: the board's line as it is)"
+	default ""
+
+config AB_SLOT_ARGS
+	string "Command line tokens for a slot's boot (not the rescue system's)"
+	default "panic=5"
+	help
+	  The boot layer's watchdog contract with the OS, for example
+	  "watchdog.open_timeout=120 <driver>.nowayout=1 panic=5". A token whose key (up to
+	  '=') is already on the line is left out.
+
+config AB_IMAGE_MAX
+	hex "Largest boot image read (bytes, at $loadaddr)"
+	default 0x06000000
+
+config AB_FDT_GROW
+	hex "Room for the board's additions to a slot's device tree"
+	default 0x40000
+
+config AB_CRUMBS
+	bool "Diagnostics: a crumb per stage and the console record in misc"
+	help
+	  SPEC.md, "Diagnostics". Each area is written only while it is empty or already holds
+	  the boot layer's data.
+
+config AB_CRUMBS_BLOCK
+	int "misc block of the crumbs (two blocks)"
+	depends on AB_CRUMBS
+	default 1016
+
+config AB_LOG_FIRST
+	int "misc block where the console record starts"
+	depends on AB_CRUMBS
+	default 896
+
+config AB_LOG_BLOCKS
+	int "Its length in blocks"
+	depends on AB_CRUMBS
+	default 120
+
+config AB_CRUMBS_RAM
+	hex "RAM address of the crumbs from before relocation (0: none)"
+	depends on AB_CRUMBS
+	default 0x0
+
+endif
