@@ -12,16 +12,18 @@
  *     screen shows nothing this boot: then the pick at once, nothing drawn, no note waited for.
  *  5. The slot's kernel, from the slot convention: /slots/<x>/boot/boot.img on the store
  *     (CONFIG_AB_STORE_PART), an Android boot image v0/v1 (gzip'd arm64 Image, the DTB appended,
- *     the slot's initramfs; the header at 0 or at 0x400). Failing that the other slot's kernel
- *     (CONFIG_AB_BORROW_KERNEL) or the other slot whole, then the rescue kernel
- *     (CONFIG_AB_RESCUE_PART, or CONFIG_AB_RESCUE_FILE on the store), then board_ab_last_resort,
- *     then a screen that stays.
+ *     the slot's initramfs; the header at 0 or at 0x400). Failing that the slot loses a try and the
+ *     other slot boots whole, if it is bootable; then the rescue kernel (CONFIG_AB_RESCUE_PART, or
+ *     CONFIG_AB_RESCUE_FILE on the store), then a screen that stays. U-Boot carries no kernel of
+ *     its own.
  *  6. The try (ab_take), written back unless nothing changed (CONFIG_AB_READONLY: never written).
- *  7. The kernel's tree: the image's own DTB with the board's additions (board_ab_fixup_fdt).
- *  8. The command line: the board's (board_ab_bootargs; default: the prior stage's, with the booted
- *     image's header command line in place of U-Boot's), init= (CONFIG_AB_INIT), for a slot
- *     CONFIG_AB_SLOT_ARGS (the watchdog contract), then ab.slot=<x> ab.kernel=<a|b|rescue>.
- *  9. booti, the watchdog running.
+ *  7. The kernel's tree: the image's own DTB with what the prior stage added to the tree packed into
+ *     U-Boot's image (board_ab_fixup_fdt; dt.c).
+ *  8. The command line: the prior stage's, with the booted image's header command line in place of
+ *     U-Boot's and the parameters it sets taken from it (board_ab_bootargs; cmdline.c), init=
+ *     (CONFIG_AB_INIT), for a slot CONFIG_AB_SLOT_ARGS (the watchdog contract), then ab.slot=<x>
+ *     ab.kernel=<a|b|rescue>.
+ *  9. booti, the watchdog running. A failure: 10 s, then a reset (CONFIG_AB_RESET_*).
  *
  * Nothing here knows the OS: no file on the store is read but the slot convention's.
  */
@@ -38,6 +40,8 @@
 #include <stdio.h>
 #include <time.h>
 #include <vsprintf.h>
+#include <wdt.h>
+#include <dm/uclass.h>
 #include <asm/unaligned.h>
 #include <linux/ctype.h>
 #include <linux/delay.h>
@@ -283,8 +287,7 @@ static const char *id_hex(const struct ab_bootimg_hdr *h)
 
 /*
  * The header: at the start of the image, or at 0x400 behind a 1 KB stub that some devices need in
- * front of every boot image, with the kernel and ramdisk still at page offsets from the start of the
- * image.
+ * front of every boot image, with the kernel and ramdisk still at page offsets from the start of the image.
  */
 static struct ab_bootimg_hdr *hdr_at(u8 *img)
 {
@@ -504,19 +507,14 @@ static const char *load_rescue(const void *prior, struct ab_bootimg_hdr **hp, ul
 }
 
 /*
- * No kernel at all: the screen stays, the watchdog fed, until someone powers the unit off. A reset
+ * No kernel at all: the screen stays, the watchdog fed, until someone powers the device off. A reset
  * would make the same decision again from the same record, store and rescue partition: a loop.
  * When the screen is not shown (board_ab_menu_visible) nothing is drawn, but U-Boot stays all the
  * same.
  */
-__weak void board_ab_last_resort(void)
-{
-}
-
 static void __noreturn stay(const char *why)
 {
 	printf("abboot: no kernel can start (%s)\n", why);
-	board_ab_last_resort();
 	printf("abboot: staying here\n");
 	ab_record_dump("no kernel");
 	ab_screen_clear();
@@ -569,7 +567,8 @@ static const char *booted_part(void)
 /*
  * The prior tree's /chosen/bootargs, with the booted image's header command line in place of this
  * U-Boot image's (a bootloader that builds its line around the header command line of the image it
- * started put U-Boot's there); else the header's command line.
+ * started put U-Boot's there), and the parameters of CONFIG_AB_HEADER_KEYS that the
+ * header sets (its root) taken from it alone; else the header's command line.
  */
 __weak int board_ab_bootargs(const void *prior, const struct ab_bootimg_hdr *h, char *out,
 			     size_t size)
@@ -582,17 +581,12 @@ __weak int board_ab_bootargs(const void *prior, const struct ab_bootimg_hdr *h, 
 		args = node < 0 ? NULL : fdt_getprop(prior, node, "bootargs", &len);
 	}
 	if (args) {
-		strlcpy(out, ab_header_swap(args, h, booted_part()), size);
+		ab_header_line(args, h, booted_part(), CONFIG_AB_HEADER_KEYS, out, size);
 	} else {
 		memcpy(out, h->cmdline, min(size - 1, sizeof(h->cmdline)));
 		out[min(size - 1, sizeof(h->cmdline))] = '\0';
 	}
 	return 0;
-}
-
-__weak int board_ab_extra_args(char *out, int len, size_t size)
-{
-	return len;
 }
 
 /* The board's line, then init=, the slot's tokens and the markers. slot -1: the rescue system. */
@@ -653,17 +647,114 @@ __weak const void *board_ab_prior_fdt(void)
 	return fdt && !fdt_check_header(fdt) ? fdt : NULL;
 }
 
-__weak int board_ab_fixup_fdt(void *fdt, const void *prior)
+/*
+ * The device tree packed into the image U-Boot was started from (booted_part()), appended to its
+ * kernel: at the end of the kernel area, searched backwards over its last 2 MB. Read once, at the
+ * start of abboot, before a slot's image lands at $loadaddr. NULL if there is none.
+ */
+static void *own_dtb;
+
+static void read_own_dtb(void)
 {
-	return 0;
+	const char *part = booted_part();
+	struct blk_desc *desc;
+	struct disk_partition info;
+	struct ab_bootimg_hdr *h;
+	ulong ks, ps, from, first, blocks, off, end;
+	u8 *buf;
+
+	if (!IS_ENABLED(CONFIG_AB_DT_MERGE) || ab_find_part(part, &desc, &info))
+		return;
+	buf = memalign(ARCH_DMA_MINALIGN, 8 * 512);
+	if (!buf || blk_dread(desc, info.start, 8, buf) != 8 || !(h = hdr_at(buf))) {
+		free(buf);
+		printf("abboot: %s: no boot image header\n", part);
+		return;
+	}
+	ks = h->kernel_size;
+	ps = h->page_size;
+	free(buf);
+	/* The kernel area's last 2 MB (or all of it), from the block holding its start. */
+	from = ps + (ks > SZ_2M ? ks - SZ_2M : 0);
+	first = from / 512;
+	end = ps + ks;
+	blocks = DIV_ROUND_UP(end, 512) - first;
+	if (!ks || first + blocks > info.size)
+		return;
+	buf = memalign(ARCH_DMA_MINALIGN, blocks * 512);
+	if (!buf || blk_dread(desc, info.start + first, blocks, buf) != blocks) {
+		free(buf);
+		return;
+	}
+	for (off = end - 8; off >= from && off >= first * 512; off--) {
+		const u8 *p = buf + off - first * 512;
+
+		if (get_unaligned_be32(p) == FDT_MAGIC && get_unaligned_be32(p + 4) == end - off) {
+			own_dtb = memalign(ARCH_DMA_MINALIGN, end - off);
+			if (own_dtb)
+				memcpy(own_dtb, p, end - off);
+			break;
+		}
+	}
+	free(buf);
+	if (own_dtb && fdt_check_header(own_dtb)) {
+		free(own_dtb);
+		own_dtb = NULL;
+	}
+	if (own_dtb)
+		printf("abboot: %s's packed device tree: %u bytes\n", part, fdt_totalsize(own_dtb));
+	else
+		printf("abboot: %s: no packed device tree\n", part);
 }
 
-__weak void board_ab_before_boot(void)
+/*
+ * What the prior stage added to the tree packed into U-Boot's image (ab_dt_merge). Without that
+ * packed tree, the booted image's own tree as it came stands in for it.
+ */
+__weak int board_ab_fixup_fdt(void *fdt, const void *prior)
 {
+	void *base = own_dtb;
+	int ret;
+
+	if (!IS_ENABLED(CONFIG_AB_DT_MERGE))
+		return 0;
+	if (!prior) {
+		printf("abboot: dtb: no tree from the prior stage\n");
+		return -FDT_ERR_NOTFOUND;
+	}
+	if (!base) {
+		printf("abboot: dtb: no packed tree: compared with the booted image's own\n");
+		base = malloc(fdt_totalsize(fdt));
+		if (!base)
+			return -FDT_ERR_NOSPACE;
+		memcpy(base, fdt, fdt_totalsize(fdt));
+	}
+#if IS_ENABLED(CONFIG_AB_DT_MERGE)
+	ret = ab_dt_merge(fdt, prior, base, CONFIG_AB_DT_CARRY);
+#else
+	ret = 0;
+#endif
+	if (base != own_dtb)
+		free(base);
+	return ret;
 }
 
 /* --- abboot --- */
 
+/* A reset: PSCI's SYSTEM_RESET (CONFIG_AB_RESET_PSCI), else or failing that the watchdog (CONFIG_WDT). */
+static void __noreturn ab_reset(void)
+{
+	struct udevice *wdt;
+
+	if (IS_ENABLED(CONFIG_AB_RESET_PSCI))
+		do_reset(NULL, 0, 0, NULL);
+	if (IS_ENABLED(CONFIG_WDT) && !uclass_first_device_err(UCLASS_WDT, &wdt))
+		wdt_expire_now(wdt, 0);
+	for (;;)
+		;
+}
+
+/* Something went wrong after a kernel was chosen: 10 s on the screen, then a reset. */
 static int fail(const char *why)
 {
 	printf("abboot: %s\n", why);
@@ -671,6 +762,8 @@ static int fail(const char *why)
 	ab_record_dump("failure");
 	ab_say("Could not start");
 	ab_say("Restarting in 10 seconds");
+	ab_wait_ms(10000);
+	ab_reset();
 	return CMD_RET_FAILURE;
 }
 
@@ -685,7 +778,9 @@ static int do_abboot(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 	char cmd[96], line[48], kname[8];
 	int slot;
 
-	ab_crumbs_init();	/* if the board's board_init has not already */
+	/* A board without abboot's start-up functions (CONFIG_AB_BOARD_INIT): misc's areas found here. */
+	if (!IS_ENABLED(CONFIG_AB_BOARD_INIT))
+		ab_crumbs_init();
 	ab_crumb(ST_BOOT, true, "abboot");
 
 	/* The prior stage's tree, copied away before anything can land on it. */
@@ -703,6 +798,7 @@ static int do_abboot(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 	}
 	/* Asked once, here: whether anything is drawn, the menu shown, the notes waited for. */
 	ab_screen_visible();
+	read_own_dtb();
 
 	slot = ab_choose();
 	ab_screen_clear();
@@ -713,9 +809,9 @@ static int do_abboot(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 		snprintf(line, sizeof(line), "Booting slot %c", 'A' + slot);
 		ab_say(line);
 		/*
-		 * The slot's own kernel. Failing that: with CONFIG_AB_BORROW_KERNEL (kernels that carry
-		 * all they need) the other slot's kernel with this slot's root; without it (a kernel
-		 * whose modules are in its own slot) the other slot whole, if it is bootable. Then the rescue kernel, then a screen that stays.
+		 * The slot's own kernel. Failing that the other slot whole (its kernel and its root),
+		 * if it is bootable: this slot loses a try, as with any failure. Then the rescue
+		 * kernel, then a screen that stays.
 		 */
 		why = load_slot(slot, prior, &h, &rd, &rs, &missing);
 		if (!why) {
@@ -729,19 +825,15 @@ static int do_abboot(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 			snprintf(line, sizeof(line), missing ? "Slot %c has no kernel of its own" :
 				 "Slot %c's kernel cannot be used", 'A' + slot);
 			ab_say(line);
-			why = "not tried";
-			if (IS_ENABLED(CONFIG_AB_BORROW_KERNEL) || ab_bootable(&ab.rec.slot[o]))
+			why = "not bootable";
+			if (ab_bootable(&ab.rec.slot[o]))
 				why = load_slot(o, prior, &h, &rd, &rs, &missing);
 			if (!why) {
 				snprintf(kname, sizeof(kname), "%c", 'a' + o);
-				if (IS_ENABLED(CONFIG_AB_BORROW_KERNEL)) {
-					snprintf(line, sizeof(line), "Using slot %c's kernel", 'A' + o);
-				} else {
-					/* the other slot whole: its kernel and its root; this one's try taken */
-					ab_take(&ab.rec, slot, -1);
-					slot = o;
-					snprintf(line, sizeof(line), "Booting slot %c instead", 'A' + o);
-				}
+				/* the other slot whole: its kernel and its root; this one's try taken */
+				ab_take(&ab.rec, slot, -1);
+				slot = o;
+				snprintf(line, sizeof(line), "Booting slot %c instead", 'A' + o);
 				ab_say(line);
 			} else {
 				printf("abboot: slot %c's kernel: %s\n", 'a' + o, why);
@@ -751,7 +843,7 @@ static int do_abboot(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv
 				strcpy(kname, "rescue");
 				ab_say("Using the rescue kernel");
 			}
-			/* e.g. "a no kernel -> b": slot a's root (or slot b whole), slot b's kernel */
+			/* e.g. "a no kernel -> b": slot b whole */
 			ab_crumb(ST_SLOTK, false, "%c %.10s -> %s", 'a' + was, why0, kname);
 			if (ab_screen_visible())
 				ab_wait_ms(CONFIG_AB_WARN_MS);

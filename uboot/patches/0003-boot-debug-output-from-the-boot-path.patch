@@ -1,0 +1,62 @@
+boot: debug() output from the boot path, for diagnostic builds
+
+With CONFIG_AB_DEBUG_BOOT, builds booti, bootm, the device tree and initrd code, LMB and the video
+console with -DDEBUG, so that their debug() lines land in the console record (and, with
+CONFIG_AB_CRUMBS, in misc). Without that option nothing changes. Applied after 0001.
+
+Against U-Boot v2026.10. SPDX-License-Identifier: GPL-2.0-or-later
+
+diff --git a/boot/Makefile b/boot/Makefile
+index f1bc4d2c..db438f3f 100644
+--- a/boot/Makefile
++++ b/boot/Makefile
+@@ -81,3 +81,11 @@ obj-$(CONFIG_$(PHASE_)BOOTMETH_VBE_ABREC_OS) += vbe_abrec_os.o
+ ifeq ($(CONFIG_XPL_BUILD),)
+ obj-$(CONFIG_ABBOOT) += abboot/
+ endif
++
++# Diagnostic builds (CONFIG_AB_DEBUG_BOOT): debug() output from the boot path
++ifdef CONFIG_AB_DEBUG_BOOT
++CFLAGS_bootm.o += -DDEBUG
++CFLAGS_image-board.o += -DDEBUG
++CFLAGS_image-fdt.o += -DDEBUG
++CFLAGS_fdt_support.o += -DDEBUG
++endif
+diff --git a/cmd/Makefile b/cmd/Makefile
+index ce772e55..43a30c82 100644
+--- a/cmd/Makefile
++++ b/cmd/Makefile
+@@ -301,3 +301,7 @@ $(obj)/license_data_size.h: $(srctree)/Licenses/gpl-2.0.txt FORCE
+ 	$(call filechk,data_size)
+ 
+ CFLAGS_ethsw.o := -Wno-enum-conversion
++
++ifdef CONFIG_AB_DEBUG_BOOT
++CFLAGS_booti.o += -DDEBUG
++endif
+diff --git a/drivers/video/Makefile b/drivers/video/Makefile
+index 082b8967..2cce489c 100644
+--- a/drivers/video/Makefile
++++ b/drivers/video/Makefile
+@@ -94,3 +94,9 @@ obj-$(CONFIG_VIDEO_ZYNQMP_DPSUB) += zynqmp/
+ obj-y += bridge/
+ obj-y += sunxi/
+ obj-y += tegra/
++
++ifdef CONFIG_AB_DEBUG_BOOT
++CFLAGS_simplefb.o += -DDEBUG
++CFLAGS_video-uclass.o += -DDEBUG
++CFLAGS_vidconsole-uclass.o += -DDEBUG
++endif
+diff --git a/lib/Makefile b/lib/Makefile
+index 222378a8..a51444e3 100644
+--- a/lib/Makefile
++++ b/lib/Makefile
+@@ -181,3 +181,7 @@ quiet_cmd_build_OID_registry = GEN     $@
+ clean-files     += oid_registry_data.c
+ 
+ subdir-ccflags-$(CONFIG_CC_OPTIMIZE_LIBS_FOR_SPEED) += -O2
++
++ifdef CONFIG_AB_DEBUG_BOOT
++CFLAGS_lmb.o += -DDEBUG
++endif

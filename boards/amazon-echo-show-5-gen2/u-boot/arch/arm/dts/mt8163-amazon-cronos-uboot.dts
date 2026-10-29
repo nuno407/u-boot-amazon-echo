@@ -1,0 +1,146 @@
+// SPDX-License-Identifier: GPL-2.0 OR MIT
+/*
+ * U-Boot's own (control) device tree for the Echo Show 5 2nd gen (cronos, MT8163), started by the
+ * device's bootloader (LK) in place of the kernel. The kernel never sees this tree: it gets its
+ * own image's tree with what LK added to the tree appended to the U-Boot image (abboot/dt.c).
+ * PROVENANCE.md gives the source of every value.
+ *
+ * U-Boot has no MT8163 support; this describes only what it touches, with fixed clocks at the rates
+ * LK leaves (read under Linux in the kernel's clk_summary). LK has set the pins, clocks and rails
+ * of everything here, and the display is LK's framebuffer, left scanning out: nothing reconfigures
+ * them.
+ */
+
+/dts-v1/;
+
+/ {
+	model = "Amazon Echo Show 5 2nd gen (cronos)";
+	compatible = "amazon,cronos", "mediatek,mt8163";
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	/*
+	 * U-Boot's own RAM: up to 0x7b000000, below what the secure world and LK keep at the top
+	 * (0x7bb80000 on). U-Boot relocates itself just below it. The kernel gets LK's /memory.
+	 */
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0 0x40000000 0 0x3b000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/* The secure monitor. */
+		secmon@43000000 {
+			no-map;
+			reg = <0 0x43000000 0 0x30000>;
+		};
+
+		/* The kernel's ramoops (so pstore survives U-Boot). */
+		ramoops@44410000 {
+			no-map;
+			reg = <0 0x44410000 0 0xe0000>;
+		};
+
+		/* LK's device tree (the header's tags address). */
+		lk-tags@48000000 {
+			no-map;
+			reg = <0 0x48000000 0 0x100000>;
+		};
+
+		/* LK's framebuffer block (fb-reserved-memory). */
+		framebuffer@5f900000 {
+			no-map;
+			reg = <0 0x5f900000 0 0x700000>;
+		};
+	};
+
+	chosen {
+		stdout-path = &uart0;
+	};
+
+	/*
+	 * LK's framebuffer as LK leaves it scanning out (atag,videolfb, fb-reserved-memory): the
+	 * 480x960 portrait glass, mounted landscape. rot = 1, a quarter turn clockwise, so the text
+	 * reads upright.
+	 */
+	framebuffer@5f900000 {
+		compatible = "simple-framebuffer";
+		reg = <0 0x5f900000 0 (480 * 960 * 4)>;
+		width = <480>;
+		height = <960>;
+		stride = <(480 * 4)>;
+		format = "a8b8g8r8";
+		rot = <1>;
+	};
+
+	clk26m: oscillator-26m {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <26000000>;
+	};
+
+	/*
+	 * MSDC0's source (msdc30_0_sel from msdcpll_d2) and bus clocks. If LK left a slower source,
+	 * the bus clock only comes out slower than asked: the safe side.
+	 */
+	msdc0_src: msdc0-source {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <200000000>;
+	};
+
+	msdc0_hclk: msdc0-hclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <136500000>;
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/* Left running by LK; started again at its longest timeout and handed on running. */
+		watchdog: watchdog@10007000 {
+			compatible = "mediatek,wdt";
+			reg = <0 0x10007000 0 0x100>;
+			timeout-sec = <31>;
+		};
+
+		/* UART0, which the kernel's earlycon also writes; no connector on the device. */
+		uart0: serial@11002000 {
+			compatible = "mediatek,mt8163-uart", "mediatek,mt6577-uart";
+			reg = <0 0x11002000 0 0x400>;
+			clocks = <&clk26m>;
+			clock-names = "baud";
+			status = "okay";
+		};
+
+		/*
+		 * The eMMC, plainly: 8 bits at 26 MHz in the card's default mode, no high speed, no
+		 * HS200, no voltage switch. Enough to read a slot's 14 MB image in about a second; the
+		 * kernel sets its own mode again. MT8163's MSDC is MT2701's, which is MT7623's in U-Boot.
+		 */
+		mmc0: mmc@11230000 {
+			compatible = "mediatek,mt7623-mmc";
+			reg = <0 0x11230000 0 0x1000>;
+			clocks = <&msdc0_src>, <&msdc0_hclk>;
+			clock-names = "source", "hclk";
+			bus-width = <8>;
+			max-frequency = <26000000>;
+			mediatek,latch-ck = <1>;
+			non-removable;
+			status = "okay";
+		};
+	};
+
+	aliases {
+		mmc0 = &mmc0;
+		serial0 = &uart0;
+	};
+};

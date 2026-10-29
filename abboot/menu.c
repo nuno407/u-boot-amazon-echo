@@ -123,16 +123,6 @@ void ab_wait_ms(ulong ms)
 		udelay(10000);	/* schedule() inside: the watchdog stays fed */
 }
 
-__weak unsigned int board_ab_keys(void)
-{
-	return 0;
-}
-
-__weak bool board_ab_menu_visible(void)
-{
-	return true;
-}
-
 bool ab_screen_visible(void)
 {
 	static int visible = -1;
@@ -142,10 +132,6 @@ bool ab_screen_visible(void)
 		printf("abboot: screen %s\n", visible ? "shown" : "not shown: no menu, no notes");
 	}
 	return visible;
-}
-
-__weak void board_ab_screen_prepare(void)
-{
 }
 
 #if !IS_ENABLED(CONFIG_VIDEO)
@@ -271,7 +257,7 @@ void ab_say(const char *msg)
 		ab_crumb(ST_TEXT, true, "text drawn");
 }
 
-/* The layout, from the console's rows (for example 25 big rows and 50 small ones on 1280x800). */
+/* The layout, from the console's rows: for example 25 big rows and 50 small ones on 1280x800. */
 struct layout {
 	int first;		/* the first entry's row (big font) */
 	int count;		/* "Boot in 5s." */
@@ -347,10 +333,8 @@ int ab_menu(struct ab_menu_entry *e, int n, int def, const char *note)
 		l.bar = max_t(int, l.bar, strlen(e[i].label) + 4);
 	l.bar = min(l.bar, 39);
 
-	if (note && note[0]) {
-		printf("abboot: %s\n", note);
+	if (note && note[0])
 		put_centered(l.first - 2, note, WHITE, BLACK, BIG);
-	}
 	draw_entries(&l, e, n, sel, false);
 	put_centered(l.hint, CONFIG_AB_MENU_HINT, GRAY, BLACK, SMALL);
 	ab_keys_init(&keys, board_ab_keys());

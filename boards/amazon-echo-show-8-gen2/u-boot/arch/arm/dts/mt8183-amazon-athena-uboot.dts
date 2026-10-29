@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: GPL-2.0 OR MIT
+/*
+ * U-Boot's own (control) device tree for the Echo Show 8 2nd gen (athena), started by the device's
+ * bootloader (LK) in place of the kernel. The kernel never sees this tree: it gets its own image's
+ * tree with what LK added to the tree appended to the U-Boot image (abboot/dt.c). The
+ * simple-framebuffer node is the screen abboot draws into and clears (abboot/board.c).
+ * PROVENANCE.md gives the source of every value.
+ *
+ * Only what U-Boot touches is described, and nothing it would reconfigure: LK has already set the
+ * pins, clocks and rails of everything here, and the display is LK's framebuffer, left scanning out.
+ */
+
+/dts-v1/;
+
+#include <config.h>
+#include "mt8183.dtsi"
+
+/ {
+	model = "Amazon Echo Show 8 2nd gen (athena)";
+	compatible = "amazon,athena", "mediatek,mt8183";
+
+	/*
+	 * U-Boot's own RAM: the lower 1 GB. Everything LK and the secure world keep above it
+	 * (VPU binary, framebuffer, TEE, SSPM, SPM from 0xbb12f000) stays out of reach, and U-Boot
+	 * relocates itself just below 0x80000000. The kernel gets LK's /memory (2 GB), untouched.
+	 */
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0 0x40000000 0 0x40000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/* The SCP's memory (Linux's mt8183 device trees: scp_mem_reserved). */
+		scp-pool@50000000 {
+			no-map;
+			reg = <0 0x50000000 0 0x2900000>;
+		};
+
+		/* LK's device tree (the header's tags address), its ramdisk and its log ring. */
+		lk-tags@54000000 {
+			no-map;
+			reg = <0 0x54000000 0 0x600000>;
+		};
+
+		/* BL31 (LK's mblock "atf-reserved"). */
+		secmon@54600000 {
+			no-map;
+			reg = <0 0x54600000 0 0x40000>;
+		};
+	};
+
+	chosen {
+		stdout-path = &uart0;
+	};
+
+	/*
+	 * LK's framebuffer, as LK leaves it scanning out (the first page of the block LK's device tree
+	 * reserves, mblock-4-framebuffer). 800x1280 portrait glass mounted landscape: rot = 1 (a
+	 * quarter turn clockwise) puts the top of the text at the buffer's right edge, so it reads
+	 * upright.
+	 */
+	framebuffer@be150000 {
+		compatible = "simple-framebuffer";
+		reg = <0 0xbe150000 0 (800 * 1280 * 4)>;
+		width = <800>;
+		height = <1280>;
+		stride = <(800 * 4)>;
+		format = "a8r8g8b8";
+		rot = <1>;
+	};
+};
+
+/* Left running by LK; started again by U-Boot at its longest timeout and handed on running. */
+&watchdog {
+	timeout-sec = <31>;
+	status = "okay";
+};
+
+&uart0 {
+	status = "okay";
+};
+
+/*
+ * The eMMC at plain high speed (52 MHz, 8 bits): no HS200 tuning and no voltage switching:
+ * enough to read about 14 MB. The kernel sets its own mode again.
+ */
+&mmc0 {
+	bus-width = <8>;
+	max-frequency = <52000000>;
+	cap-mmc-highspeed;
+	non-removable;
+	status = "okay";
+};

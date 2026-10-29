@@ -1,0 +1,52 @@
+mediatek: map one extra board region in the MMU table
+
+CONFIG_MTK_MEM_MAP_EXTRA_BASE and _SIZE add one region outside the DDR range of mem_map, mapped as
+normal, non-cacheable memory. The Echo boards use it for the framebuffer the previous bootloader
+leaves on screen, which lies above the RAM U-Boot uses: with the region in the table from the
+start, simplefb does not have to map it at run time (on the Echo Show 8 that run-time mapping
+crashed U-Boot before the screen came up).
+
+Against U-Boot v2026.10. SPDX-License-Identifier: GPL-2.0-or-later
+
+diff --git a/arch/arm/mach-mediatek/Kconfig b/arch/arm/mach-mediatek/Kconfig
+index 5e6c50ca..3397b9de 100644
+--- a/arch/arm/mach-mediatek/Kconfig
++++ b/arch/arm/mach-mediatek/Kconfig
+@@ -166,6 +166,17 @@ config MTK_MEM_MAP_DDR_SIZE
+ 	help
+ 	  Target-specific DDR region size in mem_map.
+ 
++config MTK_MEM_MAP_EXTRA_BASE
++	hex "Extra mem_map region: base"
++	default 0x0
++	help
++	  A region outside the DDR range above to map as normal, non-cacheable memory, e.g. a
++	  framebuffer a previous bootloader left scanning out. 4 KB aligned.
++
++config MTK_MEM_MAP_EXTRA_SIZE
++	hex "Extra mem_map region: size (0: none)"
++	default 0x0
++
+ config MTK_MEM_MAP_MMIO_SIZE
+ 	hex "MMIO .size in mem_map"
+ 	default 0x40000000 if TARGET_MT7622 || TARGET_MT7981 || TARGET_MT7986 || TARGET_MT7987 || TARGET_MT7988 || TARGET_MT8512
+diff --git a/arch/arm/mach-mediatek/armv8-mem-map.c b/arch/arm/mach-mediatek/armv8-mem-map.c
+index cbaa9b4c..6402ea83 100644
+--- a/arch/arm/mach-mediatek/armv8-mem-map.c
++++ b/arch/arm/mach-mediatek/armv8-mem-map.c
+@@ -16,6 +16,15 @@ static struct mm_region mediatek_mem_map[] = {
+ 		.attrs = PTE_BLOCK_MEMTYPE(MT_DEVICE_NGNRNE) |
+ 			 PTE_BLOCK_NON_SHARE |
+ 			 PTE_BLOCK_PXN | PTE_BLOCK_UXN
++#if CONFIG_MTK_MEM_MAP_EXTRA_SIZE
++	}, {
++		/* A board region outside DDR as mapped above (e.g. a framebuffer): normal, non-cacheable */
++		.virt = CONFIG_MTK_MEM_MAP_EXTRA_BASE,
++		.phys = CONFIG_MTK_MEM_MAP_EXTRA_BASE,
++		.size = CONFIG_MTK_MEM_MAP_EXTRA_SIZE,
++		.attrs = PTE_BLOCK_MEMTYPE(MT_NORMAL_NC) | PTE_BLOCK_OUTER_SHARE |
++			 PTE_BLOCK_PXN | PTE_BLOCK_UXN
++#endif
+ 	}, {
+ 		/* List terminator */
+ 	}

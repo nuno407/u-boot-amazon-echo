@@ -119,7 +119,8 @@ for t in 2 1 0; do
 done
 boot
 ran slot-a
-said "Slot B failed, back to slot A"
+# With the menu the note is drawn above it on the screen, not printed on the console.
+[ -n "$MENU" ] || said "Slot B failed, back to slot A"
 [ "$(field b)" = "p0 t0 s0" ] && [ "$(field a)" = "p14 t2 s1" ] && [ "$(last)" = a ] ||
 	fail "fallback: a $(field a), b $(field b)"
 boot

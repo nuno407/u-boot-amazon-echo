@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * The boot layer's A/B record: 32 bytes at misc byte 2048 in the layout of AOSP's struct
- * bootloader_control (SPEC.md, "The A/B record"). Written from the published layout, not from
- * U-Boot's android_ab.c or AOSP's header (see README.md, "License"). No U-Boot dependency but
- * crc32(), so the same file builds on the host (tests/ab-test.c, with -DAB_HOST).
+ * The boot layer's A/B record: AOSP's struct bootloader_control, 32 bytes at misc byte 2048
+ * (SPEC.md, "The A/B record"). This small code reads and writes it instead of U-Boot's
+ * android_ab.c. No U-Boot dependency but crc32(), so the same file builds on the host
+ * (tests/ab-test.c, with -DAB_HOST).
  *
  * Slot index 0 is slot a ("_a"), 1 is slot b ("_b").
  */

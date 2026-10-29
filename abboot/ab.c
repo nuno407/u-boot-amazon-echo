@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * The boot layer's A/B record: the layout of bootloader_control, in misc. See ab.h and
- * SPEC.md.
+ * The boot layer's A/B record: the layout of AOSP's struct bootloader_control, in misc. See ab.h
+ * and SPEC.md.
  *
  * The record, little-endian, in the layout of AOSP's struct bootloader_control (as published in
  * AOSP's bootloader_message.h; no code is taken from it):

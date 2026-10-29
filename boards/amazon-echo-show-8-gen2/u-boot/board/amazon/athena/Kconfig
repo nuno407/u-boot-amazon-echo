@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Amazon Echo Show 8 2nd gen (athena, MT8183). U-Boot here is not BL33: the device's bootloader
+# (LK, unlocked with kaeru) starts it from an Android boot image in place of the kernel, at EL2 with
+# the MMU off and LK's device tree in x0. The board is configuration only: this file,
+# configs/amazon_athena_defconfig (the boot layer's values: keys, partitions, reset, the command
+# line and device tree rules), arch/arm/dts/mt8183-amazon-athena-uboot.dts (the screen, eMMC,
+# watchdog) and athena.env (load addresses). The boot itself is abboot's (u-boot-amazon-echo:
+# abboot/, SPEC.md); boards/amazon-echo-show-8-gen2/ in that repository has the board's README and
+# PROVENANCE.
+
+config BOARD_AMAZON_ATHENA
+	bool "Amazon Echo Show 8 2nd gen (athena), started by LK"
+	depends on TARGET_MT8183
+	select LINUX_KERNEL_IMAGE_HEADER
+	select SAVE_PREV_BL_FDT_ADDR
+	select ABBOOT
+	select AB_BOARD_INIT
+	help
+	  U-Boot for the Echo Show 8 2nd gen, packed as the kernel of an Android boot image that
+	  the device's bootloader starts.
+
+if BOARD_AMAZON_ATHENA
+
+config SYS_VENDOR
+	default "amazon"
+
+config SYS_BOARD
+	default "athena"
+
+config SYS_CONFIG_NAME
+	default "amazon_athena"
+
+config LNX_KRNL_IMG_TEXT_OFFSET_BASE
+	default TEXT_BASE
+
+endif

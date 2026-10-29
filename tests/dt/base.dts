@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// The tree packed into U-Boot's boot image (the device's own boot image DTB).
+/dts-v1/;
+/ {
+	model = "Example";
+	compatible = "example,board";
+	#address-cells = <2>;
+	#size-cells = <2>;
+	chosen { };
+	memory@40000000 { device_type = "memory"; reg = <0 0x40000000 0 0x10000000>; };
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		scp@50000000 { no-map; reg = <0 0x50000000 0 0x100000>; };
+	};
+	sound { compatible = "example,sound"; tuning = [11 12 13 14 15 16]; };
+};

@@ -1,0 +1,37 @@
+mediatek: the Amazon Echo boards
+
+Sources the Kconfig files of the two Echo boards (board/amazon/athena, the Echo Show 8 2nd gen,
+and board/amazon/cronos, the Echo Show 5 2nd gen) and builds the device tree of the one selected.
+uboot/install.sh --echo-boards copies both boards in before applying this patch.
+
+Against U-Boot v2026.10. SPDX-License-Identifier: GPL-2.0-or-later
+
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index 37d3b6fd..4f8784ee 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -1097,6 +1097,9 @@ dtb-$(CONFIG_ARCH_MEDIATEK) += \
+ 	mt8516-pumpkin.dtb \
+ 	mt8518-ap1-emmc.dtb
+ 
++dtb-$(CONFIG_BOARD_AMAZON_ATHENA) += mt8183-amazon-athena-uboot.dtb
++dtb-$(CONFIG_BOARD_AMAZON_CRONOS) += mt8163-amazon-cronos-uboot.dtb
++
+ dtb-$(CONFIG_ARCH_NPCM7xx) += nuvoton-npcm750-evb.dtb
+ dtb-$(CONFIG_ARCH_NPCM8XX) += nuvoton-npcm845-evb.dtb
+ dtb-$(CONFIG_XEN) += xenguest-arm64.dtb
+diff --git a/arch/arm/mach-mediatek/Kconfig b/arch/arm/mach-mediatek/Kconfig
+index 5e6c50ca..6d61ed59 100644
+--- a/arch/arm/mach-mediatek/Kconfig
++++ b/arch/arm/mach-mediatek/Kconfig
+@@ -1,5 +1,10 @@
+ if ARCH_MEDIATEK
+ 
++# The Amazon Echo boards (u-boot-amazon-echo: boards/amazon-echo-*), copied in by its install.sh.
++# Sourced first so that their SYS_* defaults win.
++source "board/amazon/athena/Kconfig"
++source "board/amazon/cronos/Kconfig"
++
+ config SYS_SOC
+ 	default "mediatek"
+ 

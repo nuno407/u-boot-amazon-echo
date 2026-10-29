@@ -1,0 +1,32 @@
+= athena normal boot, slot header as U-Boot's: 0
+=   console=tty0 console=ttyS0,921600n1 vmalloc=496M slub_max_order=0 slub_debug=OFZPU androidboot.verifiedbootstate=orange skip_initramfs rootwait ro init=/init root=PARTUUID=00000000-0000-4000-8000-000000000001 rootfstype=ext4 bootopt=64S3,32N2,64N2 console=ttyS0,921600 earlycon consoleblank=0 clk_ignore_unused pd_ignore_unused regulator_ignore_unused loglevel=7 panic=5 sysctl.kernel.panic_on_rcu_stall=1 mem=0x7e150000 androidboot.serialno=0000000000000000 androidboot.bootreason=reboot
+= athena normal boot, slot header with its root group: 1
+=   console=tty0 console=ttyS0,921600n1 vmalloc=496M slub_max_order=0 slub_debug=OFZPU androidboot.verifiedbootstate=orange bootopt=64S3,32N2,64N2 console=ttyS0,921600 earlycon consoleblank=0 clk_ignore_unused pd_ignore_unused regulator_ignore_unused loglevel=7 panic=5 sysctl.kernel.panic_on_rcu_stall=1 mem=0x7e150000 skip_initramfs rootwait ro init=/init root=PARTUUID=00000000-0000-4000-8000-000000000001 rootfstype=ext4 androidboot.serialno=0000000000000000 androidboot.bootreason=reboot
+= athena recovery boot, slot header as U-Boot's: 0
+=   console=tty0 console=ttyS0,921600n1 vmalloc=496M slub_max_order=0 slub_debug=OFZPU androidboot.verifiedbootstate=orange bootopt=64S3,32N2,64N2 console=ttyS0,921600 earlycon consoleblank=0 clk_ignore_unused pd_ignore_unused regulator_ignore_unused loglevel=7 panic=5 sysctl.kernel.panic_on_rcu_stall=1 mem=0x7e150000 root=/dev/ram androidboot.serialno=0000000000000000 androidboot.bootreason=reboot
+= athena recovery boot, slot header with its root group: 1
+=   console=tty0 console=ttyS0,921600n1 vmalloc=496M slub_max_order=0 slub_debug=OFZPU androidboot.verifiedbootstate=orange bootopt=64S3,32N2,64N2 console=ttyS0,921600 earlycon consoleblank=0 clk_ignore_unused pd_ignore_unused regulator_ignore_unused loglevel=7 panic=5 sysctl.kernel.panic_on_rcu_stall=1 mem=0x7e150000 skip_initramfs rootwait ro init=/init root=PARTUUID=00000000-0000-4000-8000-000000000001 rootfstype=ext4 androidboot.serialno=0000000000000000 androidboot.bootreason=reboot
+= athena recovery boot, a slot header of its own: 1
+=   console=tty0 console=ttyS0,921600n1 vmalloc=496M slub_max_order=0 slub_debug=OFZPU androidboot.verifiedbootstate=orange bootopt=64S3,32N2,64N2 console=ttyS0,921600 loglevel=4 x.y=1 root=/dev/ram androidboot.serialno=0000000000000000 androidboot.bootreason=reboot
+= slot header with rw and its own init: 1
+=   console=tty0 console=ttyS0,921600n1 vmalloc=496M slub_max_order=0 slub_debug=OFZPU androidboot.verifiedbootstate=orange skip_initramfs rootwait root=PARTUUID=00000000-0000-4000-8000-000000000001 rootfstype=ext4 bootopt=64S3,32N2,64N2 console=ttyS0,921600 earlycon consoleblank=0 clk_ignore_unused pd_ignore_unused regulator_ignore_unused loglevel=7 panic=5 sysctl.kernel.panic_on_rcu_stall=1 mem=0x7e150000 rw init=/sbin/init androidboot.serialno=0000000000000000 androidboot.bootreason=reboot
+= slot header with trailing spaces: 1
+=   console=tty0 console=ttyS0,921600n1 vmalloc=496M slub_max_order=0 slub_debug=OFZPU androidboot.verifiedbootstate=orange console=ttyS0,921600 quiet root=/dev/ram androidboot.serialno=0000000000000000 androidboot.bootreason=reboot
+= U-Boot's header not in the line: -1
+=   console=tty0 console=ttyS0,921600n1 vmalloc=496M slub_max_order=0 slub_debug=OFZPU androidboot.verifiedbootstate=orange root=/dev/ram foo=1
+= no boot image in the boot partition: 0
+=   console=tty0 console=ttyS0,921600n1 vmalloc=496M slub_max_order=0 slub_debug=OFZPU androidboot.verifiedbootstate=orange bootopt=64S3,32N2,64N2 console=ttyS0,921600 earlycon consoleblank=0 clk_ignore_unused pd_ignore_unused regulator_ignore_unused loglevel=7 panic=5 sysctl.kernel.panic_on_rcu_stall=1 mem=0x7e150000 root=/dev/ram androidboot.serialno=0000000000000000 androidboot.bootreason=reboot
+= no boot image, the slot header in the line: 0
+=   a bootopt=64S3,32N2,64N2 console=ttyS0,921600 earlycon consoleblank=0 clk_ignore_unused pd_ignore_unused regulator_ignore_unused loglevel=7 panic=5 sysctl.kernel.panic_on_rcu_stall=1 mem=0x7e150000 root=/dev/ram b
+= empty slot header: 1
+=   console=tty0 console=ttyS0,921600n1 vmalloc=496M slub_max_order=0 slub_debug=OFZPU androidboot.verifiedbootstate=orange root=/dev/ram androidboot.serialno=0000000000000000 androidboot.bootreason=reboot
+= rootwaitx is not rootwait: 1
+=   a rootwaitx bootopt=64S3,32N2,64N2 console=ttyS0,921600 earlycon consoleblank=0 clk_ignore_unused pd_ignore_unused regulator_ignore_unused loglevel=7 panic=5 sysctl.kernel.panic_on_rcu_stall=1 mem=0x7e150000 rootwait
+= cronos, the header at 0x400, slot header as U-Boot's: 0
+=   fps=6000 vram=7340032 bootopt=64S3,32N2,64N2 console=ttyMT0,921600n1 firmware_class.path=/vendor/firmware androidboot.selinux=permissive buildvariant=userdebug clk_ignore_unused pd_ignore_unused root=/dev/ram androidboot.serialno=1111111111111111
+= cronos, a slot header of its own: 1
+=   fps=6000 vram=7340032 console=ttyMT0,921600n1 slot=1 root=/dev/ram androidboot.serialno=1111111111111111
+= build a b c, b -> x y: 1
+=   a x y c
+= build, ro|rw and root=: 1
+=   a rw root=2 c

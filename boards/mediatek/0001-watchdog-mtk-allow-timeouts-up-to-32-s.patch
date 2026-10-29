@@ -1,0 +1,54 @@
+watchdog: mtk: allow timeouts up to 32 s
+
+U-Boot's mtk_wdt clamps the timeout to 15.98 s (1023 counts). The MediaTek watchdog's timeout
+field is 11 bits wide (bits 5-15 of WDT_LENGTH), as Linux's drivers/watchdog/mtk_wdt.c uses it
+(WDT_MAX_TIMEOUT 31, WDT_LENGTH_TIMEOUT(n) = n << 5). CONFIG_WDT_MTK_LONG_LENGTH lets U-Boot use
+the whole field, so it can take over a running watchdog at the 31 s Linux also uses.
+
+Against U-Boot v2026.10. SPDX-License-Identifier: GPL-2.0-or-later
+
+diff --git a/drivers/watchdog/Kconfig b/drivers/watchdog/Kconfig
+index 3c56c541..3d9609e5 100644
+--- a/drivers/watchdog/Kconfig
++++ b/drivers/watchdog/Kconfig
+@@ -281,6 +281,14 @@ config WDT_MTK
+ 	  The watchdog timer is stopped when initialized.
+ 	  It performs full SoC reset.
+ 
++config WDT_MTK_LONG_LENGTH
++	bool "MediaTek watchdog: allow timeouts up to 32 s"
++	depends on WDT_MTK
++	help
++	  Use the whole 11-bit WDT_LENGTH timeout field (bits 5..15), as
++	  Linux's mtk_wdt driver does (WDT_MAX_TIMEOUT 31 s), instead of
++	  clamping to 16 s.
++
+ config WDT_NPCM
+ 	bool "Nuvoton watchdog timer support"
+ 	depends on WDT && ARCH_NPCM
+diff --git a/drivers/watchdog/mtk_wdt.c b/drivers/watchdog/mtk_wdt.c
+index 3c7e043c..dee9853b 100644
+--- a/drivers/watchdog/mtk_wdt.c
++++ b/drivers/watchdog/mtk_wdt.c
+@@ -86,14 +86,20 @@ static void mtk_wdt_set_timeout(struct udevice *dev, u64 timeout_ms)
+ 	 * We add 15624 prior to the divide to implement the ceiling
+ 	 * We prevent over-flow by clamping the timeout_ms value here
+ 	 *  as the maximum WDT_LENGTH counts is 1023 -> 15.984375 sec
++	 *  (2047 -> 31.984375 sec with CONFIG_WDT_MTK_LONG_LENGTH: the
++	 *  timeout field is bits 5..15, as in Linux, which runs it at 31 s)
+ 	 * We also enforce a minimum of 1 count
+ 	 * Many watchdog peripherals have a self-imposed count of 1
+ 	 *  that is added to the register counts.
+ 	 *  The MediaTek docs lack details to know if this is the case here.
+ 	 *  So we enforce a minimum of 1 to guarantee operation.
+ 	 */
+-	if (timeout_ms > 15984)
++	if (IS_ENABLED(CONFIG_WDT_MTK_LONG_LENGTH)) {
++		if (timeout_ms > 31984)
++			timeout_ms = 31984;
++	} else if (timeout_ms > 15984) {
+ 		timeout_ms = 15984;
++	}
+ 
+ 	timeout_us = timeout_ms * 1000;
+ 	timeout_cc = (15624 + timeout_us) / 15625;

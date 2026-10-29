@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// A slot's own tree: a newer kernel's, with nodes the base tree does not have.
+/dts-v1/;
+/ {
+	model = "Example";
+	compatible = "example,board";
+	#address-cells = <2>;
+	#size-cells = <2>;
+	chosen { };
+	memory@40000000 { device_type = "memory"; reg = <0 0x40000000 0 0x10000000>; };
+	gpu { compatible = "example,gpu"; };
+	sound { compatible = "example,sound"; tuning = [00 00 00 00 00 00]; };
+};

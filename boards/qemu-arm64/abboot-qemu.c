@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * abboot's example board: QEMU's arm64 "virt" machine. It needs no hardware and no vendor facts, so
- * it doubles as the skeleton to copy when porting abboot to a real board. Every hook abboot offers
- * is listed below; the ones this board does not need are left as comments, with what a real board
- * would put there.
+ * abboot's example board: QEMU's arm64 "virt" machine. It needs no hardware and no vendor facts.
+ *
+ * Most boards need no C file at all: every hook below has a default built from Kconfig values and
+ * U-Boot's own device tree (abboot/board.c, boot.c), and a board selects CONFIG_AB_BOARD_INIT so
+ * that abboot also provides its start-up functions (the Echo boards do both). QEMU's board code
+ * has its own board_init, and its device tree is not one a previous bootloader patched, so this
+ * file shows the other way: the hooks a board can override in C. Every hook abboot offers is listed
+ * below; the ones this board does not need are left as comments.
  *
  * On QEMU, U-Boot runs on QEMU's own device tree (gd->fdt_blob), and the disk is virtio
  * (CONFIG_AB_DEV_IFACE "virtio"). tests/qemu/ builds a disk with the partitions abboot expects
@@ -93,8 +97,9 @@ int board_ab_fixup_fdt(void *fdt, const void *prior)
 
 /*
  * The menu's keys, raw: AB_KEY_UP and AB_KEY_DOWN for the keys held down now. abboot debounces
- * them and makes the chord (both together: start). QEMU has no keys, so the default (none: the
- * menu counts down and boots the pick) is kept. A real board reads two GPIO inputs, e.g.
+ * them and makes the chord (both together: start). QEMU has no keys, so the default (CONFIG_AB_KEY_*
+ * 0: none, the menu counts down and boots the pick) is kept. The default reads one MMIO bit per key;
+ * a board whose keys need a driver writes, e.g.
  *
  *	unsigned int board_ab_keys(void)
  *	{
@@ -111,12 +116,14 @@ int board_ab_fixup_fdt(void *fdt, const void *prior)
  *	int board_ab_bootargs(const void *prior, const struct ab_bootimg_hdr *h, char *out,
  *			      size_t size);	the base command line
  *	int board_ab_extra_args(char *out, int len, size_t size);	tokens at the end
- *	void board_ab_last_resort(void);	a last kernel to try before the stay screen
  *	void board_ab_before_boot(void);	right before booti
  */
 
 #if IS_ENABLED(CONFIG_AB_CRUMBS)
-/* With uboot/patches/0002: an exception or a panic leaves its crumb and the console record. */
+/*
+ * With uboot/patches/0002: an exception or a panic leaves its crumb and the console record. (A board
+ * with CONFIG_AB_BOARD_INIT gets these from abboot/board.c.)
+ */
 void board_exception_hook(struct pt_regs *regs)
 {
 	ab_crumbs_exception(regs);

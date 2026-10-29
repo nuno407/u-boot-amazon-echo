@@ -63,8 +63,9 @@ The **store** is one ext4 partition (`CONFIG_AB_STORE_PART`, default `system`). 
 
 Nothing else on the store is read: no state file, no release file, no OS path. What else the slot
 directory holds (usually the slot's whole root filesystem) is the OS's business. So are the
-kernel's modules, if it has any; when they live in the slot, a board must not run one slot's
-kernel with the other slot's root (`CONFIG_AB_BORROW_KERNEL` off, the default).
+kernel's modules, if it has any: they may live in the slot, which is why U-Boot never runs one
+slot's kernel with the other slot's root. A slot whose kernel cannot be used gives way to the other
+slot whole (below).
 
 U-Boot does not replay the ext4 journal: the OS writes slot files completely and syncs them, and
 has the store unmounted, read-only or synced before the reboot that uses them.
@@ -77,8 +78,10 @@ file on the store (`CONFIG_AB_RESCUE_FILE`, for example `/rescue.img`).
 
 The `abboot` command (`abboot/boot.c`), run as the boot command:
 
-1. **The previous stage's device tree** (`board_ab_prior_fdt`) is copied away, before anything
-   can be loaded over it.
+1. **The previous stage's device tree** (`board_ab_prior_fdt`; by default the one at
+   `$prevbl_fdt_addr`, `CONFIG_SAVE_PREV_BL_FDT_ADDR`) is copied away, before anything can be
+   loaded over it. abboot also reads back the device tree packed into its own boot image (in
+   `CONFIG_AB_SELF_PART`), for step 8.
 2. **The record** from misc (`CONFIG_AB_MISC_PART`); the default record if there is none.
 3. **The pick**: the slot of highest priority (a tie goes to a). If it is not bootable it has
    **failed** (its tries ran out without a successful boot): the other slot is picked if
@@ -94,15 +97,12 @@ The `abboot` command (`abboot/boot.c`), run as the boot command:
    shows nothing this boot, there is no menu: the pick boots at once ("The screen", below).
 5. **The kernel**: the slot's own `boot/boot.img`. If it is missing or fails a check ("Slot A has
    no kernel of its own", "Slot A's kernel cannot be used"):
-   - with `CONFIG_AB_BORROW_KERNEL` (kernels that carry everything they need), the other slot's
-     kernel with this slot's root ("Using slot B's kernel", `ab.slot=a ab.kernel=b`);
-   - without it, the other slot whole, if it is bootable ("Booting slot B instead",
-     `ab.slot=b ab.kernel=b`); the first slot loses a try;
+   - the other slot whole, if it is bootable ("Booting slot B instead", `ab.slot=b
+     ab.kernel=b`); the first slot loses a try, as with any failure;
    - failing that, the rescue kernel ("Using the rescue kernel", `ab.kernel=rescue`);
-   - failing that, `board_ab_last_resort` (a board may start a kernel it carries), then the
-     **stay screen**: "No slot can start" and `CONFIG_AB_STAY_HINT`. U-Boot stays there, the
-     watchdog fed, until the device is powered off: a reset would make the same decision from
-     the same record and partitions, a loop.
+   - failing that, the **stay screen** (U-Boot carries no kernel of its own): "No slot can start"
+     and `CONFIG_AB_STAY_HINT`. U-Boot stays there, the watchdog fed, until the device is powered
+     off: a reset would make the same decision from the same record and partitions, a loop.
 
    U-Boot never boots an image whose kernel holds `CONFIG_AB_SELF_MARKER` (a U-Boot image), and
    never loads `CONFIG_AB_SELF_PART` (the partition U-Boot is in) as a kernel.
@@ -112,31 +112,68 @@ The `abboot` command (`abboot/boot.c`), run as the boot command:
 7. **No bootable slot**: "No slot can start", the rescue kernel, "Starting the rescue system";
    no `ab.slot=` (the OS's own fallback decides), no watchdog contract; the record is left as it
    is.
-8. **The kernel's device tree**: the image's own DTB, opened with `CONFIG_AB_FDT_GROW` bytes of
-   room, plus what `board_ab_fixup_fdt` adds (what the previous stage adds for this board).
-9. **The command line**: `board_ab_bootargs` (by default the previous stage's
-   `/chosen/bootargs`, with the booted image's header command line in place of U-Boot's own; or
-   the image's header command line if there is no previous tree; see "The command line"), then
+8. **The kernel's device tree** ("The device tree", below): the image's own DTB, opened with
+   `CONFIG_AB_FDT_GROW` bytes of room, with what the previous stage added to the tree packed into
+   U-Boot's image (`board_ab_fixup_fdt`; `abboot/dt.c`).
+9. **The command line** ("The command line", below): the previous stage's `/chosen/bootargs`
+   with the booted image's header command line in place of U-Boot's own, and the parameters of
+   `CONFIG_AB_HEADER_KEYS` that header sets taken from it alone (`board_ab_bootargs`;
+   `abboot/cmdline.c`), or the image's header command line if there is no previous tree. Then
    `init=$CONFIG_AB_INIT` if set, then for a slot the watchdog contract (`CONFIG_AB_SLOT_ARGS`,
    each token left out if its key is already there), then **`ab.slot=<a|b>`** (a slot's boot
-   only) and **`ab.kernel=<a|b|rescue>`** (whose kernel runs), then `board_ab_extra_args`.
-10. `booti`, with the ramdisk and device tree left in place and the watchdog running.
+   only) and **`ab.kernel=<a|b|rescue>`** (whose kernel runs), then a test build's marker
+   (`CONFIG_AB_TESTSLOT`: `CONFIG_AB_TEST_MARKER`, default `ab.test=1`; `board_ab_extra_args`).
+10. `booti`, with the ramdisk and device tree left in place and the watchdog running. Should
+    anything fail after a kernel was chosen ("Could not start"): 10 s, then a reset
+    (`CONFIG_AB_RESET_PSCI`: PSCI's SYSTEM_RESET, then the watchdog; `CONFIG_AB_RESET_WDT`: the
+    watchdog only, for firmware whose PSCI has no SYSTEM_RESET).
 
 ### The command line
 
 Some bootloaders build the kernel command line around the header command line of the boot image
-they started. When U-Boot is packed as the kernel of such an image, the line U-Boot is handed
-contains U-Boot's own header command line. `ab_header_swap` (`abboot/cmdline.c`) reads that line
-from the boot image in `CONFIG_AB_SELF_PART` and replaces it with the header command line of the
-image being booted, so each slot's kernel gets its own. If the line is not found, the command
-line is kept as it is.
+they started. When U-Boot is packed as the kernel of such an image (the packer keeps the device's
+own header), the line U-Boot is handed contains U-Boot's own header command line. abboot
+(`ab_header_line`, `abboot/cmdline.c`) reads that line from the boot image in
+`CONFIG_AB_SELF_PART` and puts the booted image's own header command line in its place. Then it
+lets that header decide the parameters listed in `CONFIG_AB_HEADER_KEYS` (default `root=
+rootfstype= rootflags= init= rdinit= rootwait ro|rw skip_initramfs`: a `key=` or a flag; `a|b` is
+one group): a token of such a parameter elsewhere in the bootloader's line is dropped when the
+header sets that parameter, so that the image decides, for example, its root. Parameters that may
+appear more than once (`console=`) are never touched. If U-Boot's header line is not found in the
+line, the line is kept as it is.
+
+On the Echo Show 5 2nd gen every image carries the boot partition's header command line, so the
+swap changes nothing and the line is the bootloader's (`root=/dev/ram`: the initramfs picks the
+root). On the Echo Show 8 2nd gen the bootloader puts a root group in its line on a normal boot
+and `root=/dev/ram` on a recovery boot; an image that needs its own root carries it in its header
+command line (the OS writes it there when it installs the slot).
+
+### The device tree
+
+The previous stage hands U-Boot the device tree packed into U-Boot's own boot image (the device's
+own boot image DTB, which the packer keeps) with its own additions. abboot reads that packed tree
+back from the partition it was started from (appended to the kernel, searched backwards from the
+end of the kernel area over its last 2 MB) and copies into the booted image's tree every property
+of the previous stage's tree that the packed tree lacks or holds with another value, at the same
+path (nodes made as needed, phandles left out, nothing deleted; `CONFIG_AB_DT_MERGE`). No names
+are listed. On the Echo boards the additions are the root `model`, `/chosen`, `/memory`, the
+device's factory data (`/idme`) and reserved memory blocks.
+
+Per-device data that is in the packed tree itself is no addition. `CONFIG_AB_DT_CARRY` names such
+properties (space-separated, default empty): each is copied from the previous stage's tree into
+the booted tree's node that holds the same property with the same length. An OS that keeps, for
+example, calibration data in the device's boot image tree names that property here. Without a
+packed tree (none found) the booted image's own tree stands in for it. `tests/dt-test.sh` checks
+the rule.
 
 ### The menu's keys
 
 Two keys, Up and Down (on a phone-style device, the volume keys), and their chord: both together
-are OK. The board gives the raw state only, `board_ab_keys()` returning the `AB_KEY_UP |
-AB_KEY_DOWN` bits of the keys held down; debouncing and the chord are `ab_keys_step` in
-`abboot/menu.c`, the same for every board, sampled every 10 ms:
+are OK. The board gives the raw state only: `CONFIG_AB_KEY_UP_REG`/`_BIT` and
+`CONFIG_AB_KEY_DOWN_REG`/`_BIT`, one MMIO bit each, active low unless `CONFIG_AB_KEYS_ACTIVE_LOW`
+is off, read by the default `board_ab_keys()` (`abboot/board.c`; a register of 0 is no key).
+Debouncing and the chord are `ab_keys_step` in `abboot/menu.c`, the same for every board, sampled
+every 10 ms:
 
 - Each key is debounced on its own: a change counts after three samples in a row (20-30 ms).
 - A key already down when the menu appears (held for the bootloader before U-Boot) counts for
@@ -155,11 +192,19 @@ AB_KEY_DOWN` bits of the keys held down; debouncing and the chord are `ab_keys_s
 
 ### The screen
 
-`board_ab_menu_visible()` is asked once, early in abboot. When it returns false (the board knows
-nothing drawn would be seen this boot), abboot draws nothing at all: no video device is probed,
-there is no menu (the pick boots at once), the notes ("Slot A failed, back to slot B", ...) go to
-the serial console only and are not waited for, and the stay screen is not drawn, but U-Boot stays
-there all the same, the watchdog fed. Default: true.
+The screen is the U-Boot device tree's `simple-framebuffer` node (address, size, stride, format,
+rotation: the board's DTS). Before the menu draws, its `reg` region, and only that, is cleared to
+opaque black (`CONFIG_AB_SCREEN_CLEAR`).
+
+`board_ab_menu_visible()` is asked once, early in abboot. By default it is false when the previous
+stage's tree does not reserve that region in `/reserved-memory` (`CONFIG_AB_SCREEN_NEED_RESERVED`:
+U-Boot draws only into memory the previous stage set aside for its screen), or when the previous
+stage's command line holds the token `CONFIG_AB_MENU_HIDE_IF_PRIOR_ARG` (empty by default; the Echo
+Show 5 2nd gen board sets `fps=6000`, which its bootloader's line carries on the boots whose screen
+shows nothing). When it is false, abboot draws nothing at all: no video device is probed, there is
+no menu (the pick boots at once), the notes ("Slot A failed, back to slot B", ...) go to the serial
+console only and are not waited for, and the stay screen is not drawn, but U-Boot stays there all
+the same, the watchdog fed.
 
 ### The watchdog contract
 
@@ -252,8 +297,13 @@ The boot layer expects the OS to:
 
 ## Porting a board
 
-See [README.md](README.md#porting-the-boot-layer-to-a-board). The hooks are declared, with their
-defaults, in `abboot/abboot.h`; `boards/qemu-arm64/abboot-qemu.c` lists them all.
+A board is configuration: a Kconfig file and an environment file in `board/<vendor>/<board>/`, a
+defconfig, a U-Boot DTS and its packing options. Every hook of `abboot/abboot.h` has a default made
+from Kconfig values and the U-Boot device tree (`abboot/board.c`, `boot.c`, `menu.c`), and stays
+weak only for a board that needs code; such code should be hardware support the U-Boot tree lacks
+(SoC setup, a driver), never boot policy. The Echo boards (`boards/amazon-echo-show-*`) are
+configuration only; the QEMU example board (`boards/qemu-arm64/abboot-qemu.c`) shows the hooks a
+board can override in C. The steps are in [README.md](README.md#porting-the-boot-layer-to-a-board).
 
 ## Tests
 
@@ -267,8 +317,14 @@ On the host (`tests/run.sh`):
   mark-bad, set; the other bytes kept; `current`.
 - `menu-test.sh`: the menu's keys (`ab_keys_step`): taps, holds, chords in every order and delay
   (144 combinations), keys held when the menu appears, bounces.
-- `cmdline-test.sh`: `abboot/cmdline.c`: the header at 0 and at 0x400, the swap's outcomes.
+- `cmdline-test.sh`: `abboot/cmdline.c`: the header at 0 and at 0x400, the swap's outcomes, the
+  header keys (root group, `ro|rw`, `init=`, a flag that only looks like one), lines shaped like
+  the Echo boards' bootloaders', byte for byte as `cmdline-test.expected`.
 - `example-test.sh`: `examples/update-slot.sh` against a store directory and a misc image.
+
+In the build image (`uboot/build.sh`): `dt-test.sh`, `abboot/dt.c` with the U-Boot tree's libfdt:
+a slot's tree gets the previous stage's additions and the `CONFIG_AB_DT_CARRY` properties, and
+nothing else.
 
 In QEMU (`uboot/build.sh`, `tests/qemu/qemu-test.sh`): U-Boot v2026.10 with abboot on the example
 board boots a virtio disk 12 times, with and without the menu: the first boot writing the default

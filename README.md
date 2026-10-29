@@ -11,11 +11,11 @@ The repository has two parts:
 
 1. **The boot layer** (`abboot/`, `tools/`): works on any arm64 device that runs U-Boot. Most of
    this README is about it.
-2. **Boards for Amazon Echo devices** (`boards/`): the code that fits the boot layer to one
-   device. Today this holds only an example board for QEMU (a free PC emulator), which also
-   serves as the template for new boards. The boot layer is used on the Echo Show 8
-   (2nd gen) and the Echo Show 5 (2nd gen) in a separate project; their boards will be added
-   here once every fact in them has been checked (see "Echo boards" below).
+2. **Boards** (`boards/`): the settings that fit the boot layer to one device. There are two
+   Amazon Echo boards, the [Echo Show 8 (2nd gen)](boards/amazon-echo-show-8-gen2/README.md) and
+   the [Echo Show 5 (2nd gen)](boards/amazon-echo-show-5-gen2/README.md), and an example board
+   for QEMU (a free PC emulator) that the tests run on. A board is configuration only: no C
+   code of its own.
 
 ## Words used here
 
@@ -62,8 +62,8 @@ system that follows those two rules. The OS, in turn, only ever talks to the boo
    Down moves the bar, both keys together start the selected slot. Without a key press, the
    picked slot starts.
 4. U-Boot loads the slot's kernel from `/slots/a/boot/boot.img` (or `b`) on the store. If that
-   file is missing or damaged, it tries the other slot, then the rescue kernel. If nothing at all
-   can start, it shows a message and waits, rather than restarting in a loop.
+   file is missing or damaged, it starts the other slot instead, then the rescue kernel. If
+   nothing at all can start, it shows a message and waits, rather than restarting in a loop.
 5. It starts the kernel with `ab.slot=a` (or `b`) on the kernel command line, so the OS knows
    which slot it is running in, and with the watchdog running.
 6. The OS, once it decides it works (that is up to the OS), runs `bootctl mark-good`. From then
@@ -101,38 +101,53 @@ copy of the misc partition.
 
 ## Porting the boot layer to a board
 
-A board needs U-Boot already working on it (serial console, storage). Then:
+A board needs U-Boot already working on it (serial console, storage). A board is then
+configuration only: the Echo boards in `boards/` show the whole of it.
 
 1. **Add the boot layer to your U-Boot tree** (tested with U-Boot v2026.10):
 
        uboot/install.sh path/to/u-boot
 
-   This copies `abboot/` to `boot/abboot/` and applies `uboot/patches/0001`. Add `--hooks` to
-   also apply `uboot/patches/0002` (needed only if you want crash records, see below).
-2. **Kconfig**: your board selects `ABBOOT`.
-3. **defconfig**: set the boot command, for example
-   `CONFIG_BOOTCOMMAND="abboot; sleep 10; reset"`, and the options that differ from the defaults:
-   - `CONFIG_AB_DEV_IFACE` and `CONFIG_AB_DEV_NUM`: where the partitions are (default `mmc 0`);
-   - `CONFIG_AB_MISC_PART`, `CONFIG_AB_STORE_PART`, `CONFIG_AB_SELF_PART`,
-     `CONFIG_AB_RESCUE_PART`: the partition names (defaults `misc`, `system`, `boot`,
-     `recovery`);
+   This copies `abboot/` to `boot/abboot/` and applies `uboot/patches/0001` and `0003` (the
+   second only adds debug output for `CONFIG_AB_DEBUG_BOOT` builds). Add `--hooks` to also apply
+   `uboot/patches/0002` (needed only for crash records, see below).
+2. **Kconfig** (`board/<vendor>/<board>/Kconfig`): your board selects `ABBOOT` and `AB_BOARD_INIT`
+   (abboot then provides the board's start-up functions), plus what the device needs, for
+   example `SAVE_PREV_BL_FDT_ADDR` when a previous bootloader hands over a device tree.
+3. **defconfig**: `CONFIG_BOOTCOMMAND="abboot"` and the options that differ from the defaults
+   (each option's help text in `abboot/Kconfig` says more):
+   - where things are: `CONFIG_AB_DEV_IFACE` and `CONFIG_AB_DEV_NUM` (default `mmc 0`), the
+     partition names `CONFIG_AB_MISC_PART`, `CONFIG_AB_STORE_PART`, `CONFIG_AB_SELF_PART`,
+     `CONFIG_AB_RESCUE_PART` (defaults `misc`, `system`, `boot`, `recovery`);
    - `CONFIG_AB_SELF_MARKER`: a string unique to your U-Boot build, so it never boots itself;
    - `CONFIG_AB_SLOT_ARGS`: the watchdog contract for your watchdog driver (SPEC.md);
    - `CONFIG_AB_STAY_HINT`: what to tell the user when nothing can start;
-   - `CONFIG_AB_MENU` (needs a video driver), `CONFIG_AB_BORROW_KERNEL`, `CONFIG_AB_CRUMBS`.
-4. **Environment**: `kernel_addr_r` (2 MB aligned), `fdt_addr_r` (above it: the kernel is
-   unpacked between the two), `loadaddr` (where the boot image is read), all in free RAM.
-5. **Hooks**: small C functions in your board file. All have defaults; write only the ones you
-   need. They are declared in `abboot/abboot.h`, and `boards/qemu-arm64/abboot-qemu.c` lists them
-   all with comments:
-   - `board_ab_keys()`: which of the two menu keys are pressed right now;
-   - `board_ab_prior_fdt()` and `board_ab_fixup_fdt()`: the device tree the previous bootloader
-     handed over, and what to copy from it into each slot's device tree;
-   - `board_ab_bootargs()`, `board_ab_extra_args()`: the kernel command line;
-   - `board_ab_menu_visible()`, `board_ab_screen_prepare()`: the screen;
-   - `board_ab_last_resort()`, `board_ab_before_boot()`.
-6. **The OS side**: ship `tools/bootctl` in your root filesystem, put each slot's kernel at
+   - the keys: `CONFIG_AB_KEY_UP_REG`/`_BIT`, `CONFIG_AB_KEY_DOWN_REG`/`_BIT` (one register bit
+     each), `CONFIG_AB_KEYS_ACTIVE_LOW`;
+   - the screen: `CONFIG_AB_MENU` (needs a video driver), `CONFIG_AB_SCREEN_CLEAR`,
+     `CONFIG_AB_SCREEN_NEED_RESERVED`, `CONFIG_AB_MENU_HIDE_IF_PRIOR_ARG`;
+   - the kernel: `CONFIG_AB_HEADER_KEYS` (the default suits a Linux root), `CONFIG_AB_DT_MERGE`,
+     `CONFIG_AB_DT_CARRY`;
+   - the reset after a failure: `CONFIG_AB_RESET_PSCI` or `CONFIG_AB_RESET_WDT`;
+   - diagnostics: `CONFIG_AB_CRUMBS` and its misc blocks, `CONFIG_AB_CRUMBS_RAM`.
+
+   Test builds add `CONFIG_AB_TESTSLOT`, `CONFIG_AB_TEST_MARKER`, `CONFIG_AB_STICKY`,
+   `CONFIG_AB_READONLY`, `CONFIG_AB_RESCUE_FILE` or `CONFIG_AB_INIT` (`uboot/variants/` and
+   `uboot/build.sh --variants`).
+4. **Device tree** (U-Boot's own): memory, the storage controller, the watchdog, the UART, and
+   the screen as a `simple-framebuffer` node (address and size of the page drawn into, width,
+   height, stride, format, `rot`).
+5. **Environment** (`board/<vendor>/<board>/<board>.env`): `kernel_addr_r` (2 MB aligned),
+   `fdt_addr_r` (above it: the kernel is unpacked between the two), `loadaddr` (where the boot
+   image is read), all in free RAM.
+6. **Packing**, if U-Boot is started as the kernel of a boot image: `tools/pack-uboot.py` with
+   the board's options (`--header-at`, `--min-kernel`).
+7. **The OS side**: ship `tools/bootctl` in your root filesystem, put each slot's kernel at
    `slots/<x>/boot/boot.img`, feed the watchdog, and run `bootctl mark-good` once the system works.
+
+The hooks behind these options are weak functions declared in `abboot/abboot.h`. A board that
+needs code (a key behind an I2C chip, for example) can override one; `boards/qemu-arm64/` does,
+as an example.
 
 **Crash records** (optional): with `CONFIG_AB_CRUMBS`, U-Boot writes a short note per boot stage
 and its own console output into unused blocks of misc, so you can see after a restart how far the
@@ -140,12 +155,22 @@ last boot got. SPEC.md, "Diagnostics", has the format.
 
 ## Echo boards
 
-Not included yet. The boards for the Echo Show 8 (2nd gen) and Echo Show 5 (2nd gen) exist in a
-separate project. Before they are published here, every fact in them (addresses, GPIO numbers,
-partition layout, the way the stock bootloader starts U-Boot) has to be traced to a public source,
-to the device's own running Linux system (for example its live device tree), or to plain
-black-box testing, and the packaging tools have to work from files the user reads from their own
-device. Nothing derived from Amazon's firmware or other proprietary material will be added.
+| Board | Device | Chip |
+| --- | --- | --- |
+| [`boards/amazon-echo-show-8-gen2/`](boards/amazon-echo-show-8-gen2/README.md) | Echo Show 8 (2nd gen), "athena" | MediaTek MT8183 |
+| [`boards/amazon-echo-show-5-gen2/`](boards/amazon-echo-show-5-gen2/README.md) | Echo Show 5 (2nd gen), "cronos" | MediaTek MT8163 |
+
+Both are useful only on a device already unlocked with the community's public tools, whose
+bootloader then starts U-Boot from the boot partition in place of the kernel. Each board's
+README.md says how to build, test safely and install, and its PROVENANCE.md where every address,
+number and rule comes from: public source code, the device's own running Linux, or black-box
+tests. Nothing derived from Amazon's firmware or other proprietary material is in this
+repository. The packing tool takes everything specific to one device (its device tree, its boot
+image header, and on the Echo Show 5 the unlock's loader in front of the header) from a copy of
+that device's own boot partition, at packing time.
+
+`boards/mediatek/` holds the U-Boot changes both boards need: the watchdog's full 31 s timeout,
+the framebuffer in the MMU map, and the Kconfig and device tree lines of the two boards.
 
 ## Building and testing
 
@@ -154,16 +179,21 @@ Docker):
 
     tests/run.sh
 
-U-Boot with the boot layer, built and run in QEMU (needs Docker):
+U-Boot with the boot layer (needs Docker):
 
-    uboot/build.sh
+    uboot/build.sh [--boards "qemu echo-show-8-gen2 echo-show-5-gen2"]
 
-This clones U-Boot v2026.10 into a Docker volume, installs the boot layer and the QEMU example
-board, builds two variants (with and without the menu) into `out/`, and then boots each one 12
-times from a test disk (`tests/qemu/qemu-test.sh`): first boot, a good slot, an update that never
-works and the fallback, a missing or wrong kernel, the rescue kernel, nothing to start, and a misc
-partition that holds someone else's data. The kernels in these tests are tiny stand-ins
+This clones U-Boot v2026.10 into a Docker volume, installs the boot layer and the boards, and
+builds into `out/`: for QEMU two variants (with and without the menu), for each Echo board four
+(`test-ro`, `test`, `test-sticky`, `final`; `--variants` and `--config` pick others, see the
+script). It then runs the device tree test and boots each QEMU variant 12 times from a test disk
+(`tests/qemu/qemu-test.sh`): first boot, a good slot, an update that never works and the
+fallback, a missing or wrong kernel, the rescue kernel, nothing to start, and a misc partition
+that holds someone else's data. The kernels in these tests are tiny stand-ins
 (`tests/qemu/payload.S`) that print their name and power QEMU off.
+
+The build is reproducible: the same commit of this repository and the same options give the same
+bytes.
 
 ## Safety notes
 
@@ -185,8 +215,8 @@ Replacing or adding a bootloader is the riskiest change you can make to a device
 ## License
 
 The boot layer, the boards and the patches are built into U-Boot and are licensed, like U-Boot,
-under GPL-2.0-or-later. `tools/bootctl`, `tools/abctl.py` and `examples/update-slot.sh` are under
-the MIT license, so any OS can ship them. Details in [LICENSE](LICENSE); each file has an SPDX
+under GPL-2.0-or-later. `tools/bootctl`, `tools/abctl.py`, `tools/pack-uboot.py` and
+`examples/update-slot.sh` are under the MIT license, so any OS can ship them. Details in [LICENSE](LICENSE); each file has an SPDX
 line.
 
 The A/B record uses the byte layout of AOSP's `struct bootloader_control`, and boot images use the

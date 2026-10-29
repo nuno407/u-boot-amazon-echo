@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * The boot layer's diagnostics: crumbs and the console record in misc (crumbs.h, SPEC.md
- * "Diagnostics"). arm64 only (the generic timer's counter, the exception registers).
+ * The boot layer's diagnostics: crumbs and the console record in misc (crumbs.h,
+ * SPEC.md "Diagnostics").
  *
  * misc, CONFIG_AB_CRUMBS_BLOCK (two 512-byte blocks): ST_COUNT slots of 32 bytes, "UBC1", the stage,
  * '+' or '!', the arch counter in ms (counting since the SoC came out of reset), 20 bytes of text.
@@ -35,6 +35,22 @@ DECLARE_GLOBAL_DATA_PTR;
 
 #define CRUMB_BLOCKS	2		/* 32 slots */
 #define CRUMB_MAGIC	"UBC1"
+/*
+ * The generic timer's ticks per ms: CONFIG_COUNTER_FREQUENCY, or, on a board that leaves it 0 (QEMU),
+ * CNTFRQ_EL0 as the firmware set it.
+ */
+#if CONFIG_COUNTER_FREQUENCY
+#define TICKS_PER_MS	(CONFIG_COUNTER_FREQUENCY / 1000)
+#else
+static u64 cntfrq_per_ms(void)
+{
+	u64 f;
+
+	asm volatile("mrs %0, cntfrq_el0" : "=r" (f));
+	return f >= 1000 ? f / 1000 : 1;
+}
+#define TICKS_PER_MS	cntfrq_per_ms()
+#endif
 
 struct crumb {
 	char magic[4];
@@ -55,15 +71,6 @@ struct crumb_ram {
 static struct crumb misc_crumbs[CRUMB_BLOCKS * 16] __aligned(ARCH_DMA_MINALIGN);
 static struct blk_desc *crumb_desc;
 static lbaint_t crumb_lba, log_lba;
-
-/* The generic timer's frequency, from CNTFRQ_EL0 (set by the firmware before U-Boot). */
-static u64 ticks_per_ms(void)
-{
-	u64 f;
-
-	asm volatile("mrs %0, cntfrq_el0" : "=r" (f));
-	return f >= 1000 ? f / 1000 : 1;
-}
 
 void ab_record_dump(const char *why)
 {
@@ -143,7 +150,7 @@ void ab_crumb(enum ab_stage st, bool ok, const char *fmt, ...)
 	memcpy(c->magic, CRUMB_MAGIC, 4);
 	c->stage = st;
 	c->status = ok ? '+' : '!';
-	c->ms = lldiv(t, ticks_per_ms());
+	c->ms = lldiv(t, TICKS_PER_MS);
 	memcpy(c->text, text, sizeof(text));
 	if (crumb_desc && blk_dwrite(crumb_desc, crumb_lba, CRUMB_BLOCKS, misc_crumbs) != CRUMB_BLOCKS)
 		printf("abboot: crumb write failed\n");
@@ -163,18 +170,14 @@ void ab_crumbs_init(void)
 	struct crumb_ram *r = (struct crumb_ram *)CONFIG_AB_CRUMBS_RAM;
 	struct disk_partition info;
 	struct blk_desc *desc;
-	static bool done;
 
-	if (done)
-		return;
-	done = true;
 	/* A fresh record each boot, with the early stage carried over from RAM. */
 	memset(misc_crumbs, 0, sizeof(misc_crumbs));
 	if (CONFIG_AB_CRUMBS_RAM && !memcmp(r->magic, "UBRAM01", 8) && r->ticks[ST_EARLY]) {
 		memcpy(misc_crumbs[ST_EARLY].magic, CRUMB_MAGIC, 4);
 		misc_crumbs[ST_EARLY].stage = ST_EARLY;
 		misc_crumbs[ST_EARLY].status = '+';
-		misc_crumbs[ST_EARLY].ms = lldiv(r->ticks[ST_EARLY], ticks_per_ms());
+		misc_crumbs[ST_EARLY].ms = lldiv(r->ticks[ST_EARLY], TICKS_PER_MS);
 		memcpy(misc_crumbs[ST_EARLY].text, r->text[ST_EARLY], 20);
 	}
 	if (!ab_find_part(CONFIG_AB_MISC_PART, &desc, &info) &&

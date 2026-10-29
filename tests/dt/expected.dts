@@ -1,0 +1,39 @@
+/dts-v1/;
+
+/ {
+	#address-cells = <0x02>;
+	#size-cells = <0x02>;
+	compatible = "example,board";
+	model = "Example, revision 2";
+
+	chosen {
+		bootargs = "console=ttyS0 root=/dev/ram";
+		linux,initrd-start = <0x55000000>;
+	};
+
+	factory-data {
+		serial = "0000000000000000";
+	};
+
+	gpu {
+		compatible = "example,gpu";
+	};
+
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0x00 0x40000000 0x00 0x80000000>;
+	};
+
+	reserved-memory {
+
+		framebuffer@be000000 {
+			no-map;
+			reg = <0x00 0xbe000000 0x00 0x800000>;
+		};
+	};
+
+	sound {
+		compatible = "example,sound";
+		tuning = [11 12 13 14 15 16];
+	};
+};

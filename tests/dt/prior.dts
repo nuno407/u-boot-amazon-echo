@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// The tree the prior stage hands U-Boot: base.dts with its additions (a new model, /chosen,
+// the real memory size, a reserved block, a node of its own). Its tuning is base.dts's: per-device
+// data the boot image's tree already holds, which only CONFIG_AB_DT_CARRY copies.
+/dts-v1/;
+/ {
+	model = "Example, revision 2";
+	compatible = "example,board";
+	#address-cells = <2>;
+	#size-cells = <2>;
+	chosen { bootargs = "console=ttyS0 root=/dev/ram"; linux,initrd-start = <0x55000000>; };
+	memory@40000000 { device_type = "memory"; reg = <0 0x40000000 0 0x80000000>; };
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		scp@50000000 { no-map; reg = <0 0x50000000 0 0x100000>; };
+		framebuffer@be000000 { no-map; reg = <0 0xbe000000 0 0x800000>; };
+	};
+	factory-data { serial = "0000000000000000"; phandle = <0x7>; };
+	sound { compatible = "example,sound"; tuning = [11 12 13 14 15 16]; };
+};

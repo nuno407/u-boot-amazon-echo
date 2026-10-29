@@ -1,22 +1,23 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
-# abboot: the A/B boot layer (SPEC.md), board-independent. uboot/install.sh copies this directory
-# into a U-Boot tree as boot/abboot/, and uboot/patches/0001 sources this file from boot/Kconfig.
-# A board selects ABBOOT and sets the strings below in its defconfig.
+# abboot: the boot layer's U-Boot part (SPEC.md), board-independent. uboot/install.sh
+# copies this directory into a U-Boot tree as boot/abboot/, and uboot/patches/0001 sources this
+# file from boot/Kconfig. A board selects ABBOOT and sets the options below in its defconfig.
 
 menuconfig ABBOOT
-	bool "abboot: boot the A/B slot named by the record in misc (SPEC.md)"
+	bool "abboot: boot the A/B slot of the boot layer's record (SPEC.md)"
 	depends on ARM64
 	select FS_EXT4
 	select SHA1
 	select CMD_BOOTI
 	select SUPPORT_RAW_INITRD
 	help
-	  The slot to boot comes from the A/B record (the layout of AOSP's bootloader_control)
-	  at byte 2048 of the misc partition. A slot that has not yet booted successfully loses
-	  a try on each boot, and a slot out of tries falls back to the other. Each slot's
-	  kernel is /slots/<x>/boot/boot.img on the store partition; the kernel command line
-	  gets ab.slot=<x> ab.kernel=<x|rescue>. The command is "abboot".
+	  The slot to boot comes from bootloader_control at misc byte 2048. A slot not yet
+	  booted successfully loses a try each boot, and one out of tries falls back to the
+	  other. Each slot's kernel is /slots/<x>/boot/boot.img on the store; a slot whose kernel
+	  cannot be used loses a try and the other slot boots whole; then the rescue kernel, then
+	  a screen that stays. The command line gets ab.slot=<x> ab.kernel=<x|rescue>. The
+	  command is "abboot". A board is configuration only: everything below.
 
 if ABBOOT
 
@@ -57,14 +58,117 @@ config AB_SELF_MARKER
 	help
 	  abboot never boots an image whose kernel holds it (a test U-Boot in the rescue
 	  partition, or a U-Boot copied into a slot by mistake). Tools that must never write
-	  over U-Boot can look for it too.
+	  over U-Boot look for it too.
 
-config AB_BORROW_KERNEL
-	bool "A slot whose kernel cannot be used boots the other slot's kernel with its own root"
+config AB_BOARD_INIT
+	bool "abboot provides the board's start-up functions"
+	select BOARD_LATE_INIT
 	help
-	  For kernels that carry everything they need (every driver built in). Without it (for
-	  example a kernel whose modules live in its own slot's root filesystem), such a slot is
-	  left for the other slot whole, if that one is bootable; it loses a try.
+	  board_early_init_f (with BOARD_EARLY_INIT_F), board_init, board_late_init and the
+	  exception and panic hooks: the crumbs, and the test-slot build's misc command. For a
+	  board that is configuration only (no C file of its own).
+
+config AB_HEADER_KEYS
+	string "Kernel parameters the booted image's header command line sets for the whole line"
+	default "root= rootfstype= rootflags= init= rdinit= rootwait ro|rw skip_initramfs"
+	help
+	  The command line is the prior stage's, with this U-Boot image's header command line
+	  replaced by the booted image's. A parameter listed here (key= or a flag; a|b is one
+	  group) that the booted image's header sets is dropped from the rest of the line, so
+	  that the image decides it (e.g. its root). Empty: nothing dropped.
+
+config AB_DT_MERGE
+	bool "Carry what the prior stage added to its device tree into the kernel's"
+	default y
+	help
+	  Every node and property of the prior stage's tree that the device tree packed into
+	  this U-Boot image (read from the partition U-Boot was started from) does not have, or
+	  has with another value, is set in the booted image's tree. No names are listed.
+
+config AB_DT_CARRY
+	string "Properties carried from the prior tree whatever the packed tree says"
+	depends on AB_DT_MERGE
+	default ""
+	help
+	  Space-separated property names: per-unit data that is also in the packed tree (e.g.
+	  a calibration blob an OS put into the device's boot image), set from the prior tree into the
+	  booted tree's node holding the same property with the same length.
+
+config AB_KEY_UP_REG
+	hex "Register the Up key is read from (0: no key)"
+	default 0x0
+
+config AB_KEY_UP_BIT
+	int "Its bit"
+	default 0
+
+config AB_KEY_DOWN_REG
+	hex "Register the Down key is read from (0: no key)"
+	default 0x0
+
+config AB_KEY_DOWN_BIT
+	int "Its bit"
+	default 0
+
+config AB_KEYS_ACTIVE_LOW
+	bool "A key reads 0 while it is held"
+	default y
+
+config AB_SCREEN_CLEAR
+	bool "Clear the simple-framebuffer's region (its reg) before the menu draws"
+	depends on AB_MENU
+	default y
+	help
+	  Opaque black (0xff000000) over the reg of the control device tree's
+	  simple-framebuffer node, only that: the page the prior stage scans out.
+
+config AB_SCREEN_NEED_RESERVED
+	bool "Draw only if the prior stage's tree reserves that framebuffer region"
+	depends on AB_MENU
+	default y
+
+config AB_MENU_HIDE_IF_PRIOR_ARG
+	string "No menu when the prior stage's command line has this token (empty: never)"
+	default ""
+	help
+	  e.g. "fps=6000" on the Echo Show 5 2nd gen: on boots whose screen shows nothing, its
+	  bootloader's command line carries it, so the pick boots at once.
+
+choice
+	prompt "How abboot resets the device after a failure"
+	default AB_RESET_PSCI
+
+config AB_RESET_PSCI
+	bool "reset (PSCI SYSTEM_RESET), then the watchdog"
+
+config AB_RESET_WDT
+	bool "the watchdog only (PSCI 0.1 has no SYSTEM_RESET)"
+
+endchoice
+
+config AB_TESTSLOT
+	bool "Test build (U-Boot in the recovery partition, started once through misc's boot-recovery)"
+	help
+	  The 32-byte misc command (boot-recovery, which sent the prior stage there) is cleared
+	  as soon as the eMMC works, and AB_TEST_MARKER goes on the kernel's command line.
+
+config AB_TEST_MARKER
+	string "The test-slot build's command line marker"
+	depends on AB_TESTSLOT
+	default "ab.test=1"
+
+config AB_STICKY
+	bool "Sticky test slot: misc's boot-recovery set again before booti"
+	depends on AB_TESTSLOT
+	help
+	  A kernel that panics or hangs is reset back into this U-Boot (in the recovery
+	  partition), so the tries run out and the fallback happens without a run per boot.
+
+config AB_DEBUG_BOOT
+	bool "Diagnostic build: debug() output from booti, bootm, the FDT code, LMB and video"
+	help
+	  Builds those files with -DDEBUG (uboot/patches/0003); with CONSOLE_RECORD and AB_CRUMBS the
+	  output lands in misc.
 
 config AB_READONLY
 	bool "Never write the record: show and follow it only (a first, safe test)"
@@ -74,8 +178,8 @@ config AB_MENU
 	depends on VIDEO
 	help
 	  Keys come from board_ab_keys(): Up and Down move the bar, both together start the
-	  selected entry. A board's board_ab_menu_visible() can leave the menu out on a boot
-	  where the screen shows nothing.
+	  selected entry. A board's board_ab_menu_visible() can leave it out on a boot whose
+	  screen shows nothing.
 
 config AB_MENU_HINT
 	string "The hint at the bottom of the menu"
@@ -97,9 +201,9 @@ config AB_SLOT_ARGS
 	string "Command line tokens for a slot's boot (not the rescue system's)"
 	default "panic=5"
 	help
-	  The boot layer's watchdog contract with the OS, for example
-	  "watchdog.open_timeout=120 <driver>.nowayout=1 panic=5". A token whose key (up to
-	  '=') is already on the line is left out.
+	  The boot layer's watchdog contract with the OS, e.g. "watchdog.open_timeout=120
+	  mtk_wdt.nowayout=1 panic=5": a token whose key (up to '=') is already on the line is
+	  left out.
 
 config AB_IMAGE_MAX
 	hex "Largest boot image read (bytes, at $loadaddr)"
@@ -112,8 +216,8 @@ config AB_FDT_GROW
 config AB_CRUMBS
 	bool "Diagnostics: a crumb per stage and the console record in misc"
 	help
-	  SPEC.md, "Diagnostics". Each area is written only while it is empty or already holds
-	  the boot layer's data.
+	  SPEC.md, "Diagnostics". Each area is written only while it is empty or
+	  already holds the boot layer's data.
 
 config AB_CRUMBS_BLOCK
 	int "misc block of the crumbs (two blocks)"
