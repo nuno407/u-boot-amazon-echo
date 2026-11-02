@@ -131,7 +131,10 @@ for b in $ECHO; do
 done
 case " $BOARDS " in *" qemu "*) QEMU=1;; *) QEMU=;; esac
 
-docker image inspect $IMAGE >/dev/null 2>&1 || docker build -q -t $IMAGE "$D/uboot/docker"
+# The image is arm64 on any host (on an x86-64 one Docker runs it under emulation): build it so, and
+# again if the tag holds an image for another architecture.
+[ "$(docker image inspect --format '{{.Architecture}}' $IMAGE 2>/dev/null)" = arm64 ] ||
+	docker build -q --platform linux/arm64 -t $IMAGE "$D/uboot/docker"
 docker volume create $VOLUME >/dev/null
 
 docker run --rm --platform linux/arm64 -v $VOLUME:/src -v "$D:/host:ro" -v "$OUT:/out" \
