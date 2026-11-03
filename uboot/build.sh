@@ -131,15 +131,18 @@ for b in $ECHO; do
 done
 case " $BOARDS " in *" qemu "*) QEMU=1;; *) QEMU=;; esac
 
-# The image is arm64 on any host (on an x86-64 one Docker runs it under emulation): build it so, and
-# again if the tag holds an image for another architecture.
-[ "$(docker image inspect --format '{{.Architecture}}' $IMAGE 2>/dev/null)" = arm64 ] ||
-	docker build -q --platform linux/arm64 -t $IMAGE "$D/uboot/docker"
+# The image is for the host's architecture (one of another would run under emulation): build it so,
+# and again if the tag holds an image for another architecture. Off arm64, U-Boot and the test
+# payload are cross compiled.
+HOST_ARCH=$(docker version --format '{{.Server.Arch}}')
+[ "$(docker image inspect --format '{{.Architecture}}' $IMAGE 2>/dev/null)" = "$HOST_ARCH" ] ||
+	docker build -q -t $IMAGE "$D/uboot/docker"
+[ "$HOST_ARCH" = arm64 ] && CROSS= || CROSS=aarch64-linux-gnu-
 docker volume create $VOLUME >/dev/null
 
-docker run --rm --platform linux/arm64 -v $VOLUME:/src -v "$D:/host:ro" -v "$OUT:/out" \
+docker run --rm -v $VOLUME:/src -v "$D:/host:ro" -v "$OUT:/out" \
 	-v "$S/frag:/frag:ro" -v "$S/plan.txt:/plan.txt:ro" \
-	-e UBOOT_TAG=$UBOOT_TAG -e UBOOT_SHA=$UBOOT_SHA -e TEST=$TEST -e QEMU=$QEMU -w /src $IMAGE sh -euc '
+	-e UBOOT_TAG=$UBOOT_TAG -e UBOOT_SHA=$UBOOT_SHA -e TEST=$TEST -e QEMU=$QEMU -e CROSS_COMPILE=$CROSS -w /src $IMAGE sh -euc '
 	git config --global --add safe.directory "*"
 	[ -d u-boot/.git ] || git clone -q --depth 1 --branch $UBOOT_TAG https://github.com/u-boot/u-boot.git u-boot
 	cd u-boot
@@ -195,7 +198,7 @@ docker run --rm --platform linux/arm64 -v $VOLUME:/src -v "$D:/host:ro" -v "$OUT
 		make -s O=$o -j$(nproc) KCFLAGS=-Werror u-boot.bin
 		cp $o/u-boot.bin /out/u-boot-$board-$v.bin
 		cp $o/.config /out/.config-$board-$v
-		nm -n $o/u-boot > /out/System.map-$board-$v   # symbols, for an exception crumb pc
+		${CROSS_COMPILE}nm -n $o/u-boot > /out/System.map-$board-$v   # symbols, for an exception crumb pc
 		echo "built $board $v: $(stat -c %s $o/u-boot.bin) bytes"
 		rm -rf $o
 	done < /plan.txt

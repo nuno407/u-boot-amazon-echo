@@ -23,9 +23,9 @@ mkdir -p "$W/bin"
 ln -s "$(command -v gawk)" "$W/bin/awk"
 
 # --- The stand-in kernels. ---
-gcc -c -o "$W/payload.o" "$Q/payload.S"
-ld -Ttext=0 -e _start -o "$W/payload.elf" "$W/payload.o"
-objcopy -O binary "$W/payload.elf" "$W/payload.bin"
+${CROSS_COMPILE:-}gcc -c -o "$W/payload.o" "$Q/payload.S"
+${CROSS_COMPILE:-}ld -Ttext=0 -e _start -o "$W/payload.elf" "$W/payload.o"
+${CROSS_COMPILE:-}objcopy -O binary "$W/payload.elf" "$W/payload.bin"
 dtc -q -I dts -O dtb -o "$W/slot.dtb" "$Q/slot.dts"
 img() { python3 -I "$Q/mkbootimg.py" --payload "$W/payload.bin" --dtb "$W/slot.dtb" --tag "$1" --out "$2"; }
 img "slot-a" "$W/a.img"
